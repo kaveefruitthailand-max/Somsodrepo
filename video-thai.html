@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>วีดิโอคำบรรยายภาษาไทย</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f13;
+      --surface: #1a1a24;
+      --surface2: #22222f;
+      --border: #2e2e3e;
+      --accent: #ff6b35;
+      --accent2: #ff9a6c;
+      --text: #f0f0f5;
+      --text2: #9090aa;
+      --text3: #5a5a75;
+      --green: #3dd68c;
+      --blue: #5b9cf6;
+      --radius: 12px;
+    }
+
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Sarabun', 'Noto Sans Thai', sans-serif; font-size: 16px; }
+    body { display: flex; flex-direction: column; min-height: 100vh; }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    header .logo { font-size: 1.5rem; }
+    header h1 { font-size: 1.1rem; font-weight: 700; color: var(--accent); }
+    header p { font-size: 0.78rem; color: var(--text2); margin-top: 1px; }
+
+    main { flex: 1; padding: 16px; max-width: 900px; margin: 0 auto; width: 100%; }
+
+    .input-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .input-card label { display: block; font-size: 0.85rem; color: var(--text2); margin-bottom: 8px; }
+    .input-row { display: flex; gap: 10px; }
+    .input-row input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 10px 14px;
+      font-size: 0.9rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .input-row input:focus { border-color: var(--accent); }
+    .input-row input::placeholder { color: var(--text3); }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 20px;
+      font-size: 0.9rem;
+      font-family: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .btn-primary:hover { background: var(--accent2); }
+    .btn-primary:active { transform: scale(0.97); }
+    .btn-primary:disabled { background: var(--text3); cursor: not-allowed; }
+    .hint { font-size: 0.75rem; color: var(--text3); margin-top: 8px; }
+
+    #status {
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      margin-bottom: 12px;
+      display: none;
+      align-items: center;
+      gap: 10px;
+    }
+    #status.loading { background: rgba(255,107,53,0.12); border: 1px solid rgba(255,107,53,0.3); display: flex; }
+    #status.error { background: rgba(255,80,80,0.12); border: 1px solid rgba(255,80,80,0.3); display: flex; color: #ff8080; }
+    #status.success { background: rgba(61,214,140,0.12); border: 1px solid rgba(61,214,140,0.3); display: flex; color: var(--green); }
+
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,107,53,0.3);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #videoSection { display: none; margin-bottom: 16px; }
+    #videoSection.visible { display: block; }
+
+    .video-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 10px;
+      line-height: 1.4;
+    }
+
+    .video-wrapper {
+      position: relative;
+      aspect-ratio: 16/9;
+      background: #000;
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .video-wrapper iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+
+    /* Subtitle Overlay */
+    .subtitle-overlay {
+      position: absolute;
+      bottom: 48px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      pointer-events: none;
+      z-index: 10;
+      padding: 0 12px;
+    }
+    .subtitle-text {
+      display: inline-block;
+      background: rgba(0,0,0,0.82);
+      color: #fff;
+      font-size: clamp(0.9rem, 2.5vw, 1.15rem);
+      font-family: 'Sarabun', 'Noto Sans Thai', sans-serif;
+      padding: 4px 14px;
+      border-radius: 4px;
+      line-height: 1.5;
+      max-width: 90%;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+      transition: outline 0.15s;
+    }
+    .subtitle-text.empty { display: none; }
+    .subtitle-text.speaking { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+    /* Speaking wave indicator */
+    .speaking-indicator {
+      position: absolute;
+      top: 10px;
+      right: 14px;
+      display: none;
+      align-items: center;
+      gap: 3px;
+      background: rgba(0,0,0,0.7);
+      border-radius: 20px;
+      padding: 4px 10px 4px 8px;
+      font-size: 0.72rem;
+      color: var(--blue);
+      z-index: 20;
+    }
+    .speaking-indicator.active { display: flex; }
+    .wave { display: flex; align-items: center; gap: 2px; }
+    .wave span {
+      display: inline-block;
+      width: 3px;
+      background: var(--blue);
+      border-radius: 2px;
+      animation: wave 0.8s ease-in-out infinite;
+    }
+    .wave span:nth-child(1) { height: 6px; animation-delay: 0s; }
+    .wave span:nth-child(2) { height: 10px; animation-delay: 0.15s; }
+    .wave span:nth-child(3) { height: 14px; animation-delay: 0.3s; }
+    .wave span:nth-child(4) { height: 10px; animation-delay: 0.45s; }
+    .wave span:nth-child(5) { height: 6px; animation-delay: 0.6s; }
+    @keyframes wave {
+      0%, 100% { transform: scaleY(0.5); opacity: 0.5; }
+      50% { transform: scaleY(1); opacity: 1; }
+    }
+
+    /* Controls Row */
+    .controls-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .ctrl-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+      color: var(--text2);
+      cursor: pointer;
+      user-select: none;
+    }
+    .toggle-switch {
+      width: 36px; height: 20px;
+      background: var(--border);
+      border-radius: 10px;
+      position: relative;
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 16px; height: 16px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch.on { background: var(--accent); }
+    .toggle-switch.on::after { transform: translateX(16px); }
+    .toggle-switch.on-blue { background: var(--blue); }
+
+    /* Volume sliders section */
+    .volume-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-top: 8px;
+      display: none;
+      gap: 14px;
+      flex-direction: column;
+    }
+    .volume-panel.visible { display: flex; }
+
+    .vol-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.82rem;
+      color: var(--text2);
+    }
+    .vol-row label { min-width: 120px; }
+    .vol-row input[type=range] {
+      flex: 1;
+      accent-color: var(--blue);
+      height: 4px;
+      cursor: pointer;
+    }
+    .vol-val { min-width: 32px; text-align: right; font-size: 0.78rem; color: var(--text3); font-variant-numeric: tabular-nums; }
+
+    .no-tts-warn {
+      font-size: 0.8rem;
+      color: #ff8080;
+      background: rgba(255,80,80,0.1);
+      border: 1px solid rgba(255,80,80,0.25);
+      border-radius: 6px;
+      padding: 6px 10px;
+      margin-top: 4px;
+      display: none;
+    }
+    .no-tts-warn.visible { display: block; }
+
+    .progress-info { font-size: 0.78rem; color: var(--text3); margin-left: auto; }
+
+    /* Subtitle List */
+    #subtitleSection { display: none; }
+    #subtitleSection.visible { display: block; }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .section-title { font-size: 0.88rem; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; }
+    .count-badge { background: var(--surface2); color: var(--text2); font-size: 0.75rem; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--border); }
+
+    .subtitle-list {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .subtitle-list::-webkit-scrollbar { width: 4px; }
+    .subtitle-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .sub-item {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .sub-item:last-child { border-bottom: none; }
+    .sub-item:hover { background: var(--surface2); }
+    .sub-item.active { background: rgba(255,107,53,0.1); border-left: 3px solid var(--accent); }
+    .sub-item.speaking-row { background: rgba(91,156,246,0.1); border-left: 3px solid var(--blue); }
+
+    .sub-time { font-size: 0.72rem; color: var(--text3); font-variant-numeric: tabular-nums; white-space: nowrap; padding-top: 2px; min-width: 40px; }
+    .sub-text { font-size: 0.88rem; color: var(--text); line-height: 1.5; }
+    .sub-item.active .sub-text { color: var(--accent2); }
+    .sub-item.speaking-row .sub-text { color: var(--blue); }
+
+    .search-bar {
+      background: var(--surface2);
+      border: none;
+      border-bottom: 1px solid var(--border);
+      width: 100%;
+      padding: 8px 14px;
+      font-size: 0.85rem;
+      color: var(--text);
+      font-family: inherit;
+      outline: none;
+    }
+    .search-bar::placeholder { color: var(--text3); }
+
+    /* Direct video player */
+    #directPlayer {
+      display: none;
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+    }
+    #directPlayer.active { display: block; }
+
+    /* Info notice */
+    .info-notice {
+      font-size: 0.8rem;
+      color: var(--text2);
+      background: rgba(91,156,246,0.08);
+      border: 1px solid rgba(91,156,246,0.2);
+      border-radius: 6px;
+      padding: 6px 10px;
+      margin-top: 4px;
+      display: none;
+    }
+    .info-notice.visible { display: block; }
+
+    .welcome { text-align: center; padding: 40px 20px; color: var(--text2); }
+    .welcome .icon { font-size: 3rem; margin-bottom: 16px; }
+    .welcome h2 { font-size: 1.1rem; color: var(--text); margin-bottom: 8px; }
+    .welcome p { font-size: 0.85rem; line-height: 1.6; }
+
+    @media (max-width: 600px) {
+      main { padding: 12px; }
+      .input-row { flex-direction: column; }
+      .btn-primary { width: 100%; text-align: center; }
+      .vol-row label { min-width: 90px; font-size: 0.75rem; }
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<header>
+  <span class="logo">🎬</span>
+  <div>
+    <h1>วีดิโอคำบรรยายไทย</h1>
+    <p>ดูวีดิโอ YouTube พร้อมคำบรรยาย + พากย์เสียงภาษาไทย</p>
+  </div>
+</header>
+
+<main>
+  <!-- Input -->
+  <div class="input-card">
+    <label for="urlInput">ลิ๊งวีดิโอ</label>
+    <div class="input-row">
+      <input type="url" id="urlInput" placeholder="YouTube URL หรือลิ๊งไฟล์ .mp4, .webm ..." autocomplete="off" spellcheck="false">
+      <button class="btn-primary" id="loadBtn" onclick="loadVideo()">▶ เปิดวีดิโอ</button>
+    </div>
+    <p class="hint">YouTube · youtu.be · Shorts · ไฟล์ตรง .mp4 .webm .ogg .mov &nbsp;·&nbsp; คำบรรยายไทย + พากย์เสียงไทยอัตโนมัติ</p>
+  </div>
+
+  <!-- Status -->
+  <div id="status"></div>
+
+  <!-- Video Section -->
+  <div id="videoSection">
+    <div class="video-title" id="videoTitle"></div>
+    <div class="video-wrapper">
+      <div id="ytPlayer"></div>
+      <video id="directPlayer" controls playsinline></video>
+      <div class="subtitle-overlay" id="subtitleOverlay">
+        <span class="subtitle-text empty" id="subtitleText"></span>
+      </div>
+      <!-- Speaking indicator -->
+      <div class="speaking-indicator" id="speakingIndicator">
+        <div class="wave">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        &nbsp;พากย์ไทย
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls-row">
+      <label class="ctrl-label" onclick="toggleSubtitles()">
+        <div class="toggle-switch on" id="subToggle"></div>
+        <span>คำบรรยาย</span>
+      </label>
+
+      <label class="ctrl-label" onclick="toggleDubbing()">
+        <div class="toggle-switch" id="dubToggle"></div>
+        <span>🔊 พากย์เสียงไทย</span>
+      </label>
+
+      <span class="progress-info" id="progressInfo"></span>
+    </div>
+
+    <!-- Notices -->
+    <div class="no-tts-warn" id="noTtsWarn">
+      เบราว์เซอร์นี้ไม่รองรับเสียงภาษาไทย — ลอง Chrome บน Desktop หรือ Android
+    </div>
+    <div class="info-notice" id="directNotice">
+      ℹ️ วีดิโอตรงไม่มีคำบรรยายอัตโนมัติ — เปิดพากย์เสียงไทยได้หลังโหลด YouTube ที่มี subtitle
+    </div>
+
+    <!-- Volume Panel (shows when dubbing on) -->
+    <div class="volume-panel" id="volumePanel">
+      <div class="vol-row">
+        <label>🎙️ ความเร็วพากย์</label>
+        <input type="range" id="ttsRate" min="0.6" max="1.6" step="0.05" value="1.0" oninput="updateTtsRate(this.value)">
+        <span class="vol-val" id="ttsRateVal">1.0×</span>
+      </div>
+      <div class="vol-row">
+        <label>📹 เสียงต้นฉบับ</label>
+        <input type="range" id="origVol" min="0" max="100" step="5" value="20" oninput="updateOrigVol(this.value)">
+        <span class="vol-val" id="origVolVal">20%</span>
+      </div>
+      <div class="vol-row">
+        <label>🔊 ระดับเสียงพากย์</label>
+        <input type="range" id="ttsVol" min="0" max="1" step="0.05" value="1" oninput="updateTtsVol(this.value)">
+        <span class="vol-val" id="ttsVolVal">100%</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Subtitle List -->
+  <div id="subtitleSection">
+    <div class="section-header">
+      <span class="section-title">คำบรรยายทั้งหมด</span>
+      <span class="count-badge" id="subCount">0 บรรทัด</span>
+    </div>
+    <div class="subtitle-list">
+      <input type="text" class="search-bar" id="searchInput" placeholder="ค้นหาคำบรรยาย..." oninput="filterSubtitles(this.value)">
+      <div id="subtitleListInner"></div>
+    </div>
+  </div>
+
+  <div class="welcome" id="welcome">
+    <div class="icon">🎥</div>
+    <h2>วางลิ๊งวีดิโอด้านบน</h2>
+    <p>YouTube → แปลคำบรรยายภาษาไทย + พากย์เสียงอัตโนมัติ<br>ไฟล์ตรง (.mp4 .webm) → เปิดวีดิโอพร้อมพากย์เสียงไทย</p>
+  </div>
+</main>
+
+<script>
+  // ─── State ────────────────────────────────────────────────────────────────
+  let player = null;         // YouTube IFrame player
+  let directPlayer = null;   // HTML5 <video> element
+  let videoMode = 'youtube'; // 'youtube' | 'direct'
+  let subtitles = [];
+  let filteredSubs = [];
+  let subtitlesVisible = true;
+  let dubbingEnabled = false;
+  let syncInterval = null;
+  let currentSubIdx = -1;
+
+  // TTS state
+  let thaiVoice = null;
+  let ttsRate = 1.0;
+  let ttsVol = 1.0;
+  let origVol = 20;
+  let isSpeaking = false;
+  let lastSpokenIdx = -1;
+
+  // ─── URL Helpers ──────────────────────────────────────────────────────────
+  function isYouTubeUrl(url) {
+    return /youtube\.com|youtu\.be/.test(url);
+  }
+
+  function isDirectVideoUrl(url) {
+    return /\.(mp4|webm|ogg|ogv|mov|m4v|mkv)(\?|#|$)/i.test(url);
+  }
+
+  // ─── Current Time Helper ──────────────────────────────────────────────────
+  function getCurrentTime() {
+    if (videoMode === 'direct' && directPlayer) return directPlayer.currentTime;
+    if (videoMode === 'youtube' && player && player.getCurrentTime) return player.getCurrentTime();
+    return 0;
+  }
+
+  // ─── YouTube IFrame API ───────────────────────────────────────────────────
+  const tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(tag);
+
+  function onYouTubeIframeAPIReady() { /* ready */ }
+
+  // ─── TTS Init ─────────────────────────────────────────────────────────────
+  function initTTS() {
+    if (!('speechSynthesis' in window)) return;
+
+    function pickThaiVoice() {
+      const voices = speechSynthesis.getVoices();
+      // Prefer Thai voices
+      thaiVoice =
+        voices.find(v => v.lang === 'th-TH') ||
+        voices.find(v => v.lang.startsWith('th')) ||
+        null;
+    }
+
+    pickThaiVoice();
+    // Voices load async in some browsers
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = pickThaiVoice;
+    }
+  }
+
+  function speak(text) {
+    if (!('speechSynthesis' in window) || !text) return;
+    speechSynthesis.cancel();
+
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = 'th-TH';
+    if (thaiVoice) utt.voice = thaiVoice;
+    utt.rate = ttsRate;
+    utt.volume = ttsVol;
+
+    utt.onstart = () => {
+      isSpeaking = true;
+      document.getElementById('subtitleText').classList.add('speaking');
+      document.getElementById('speakingIndicator').classList.add('active');
+    };
+    utt.onend = utt.onerror = () => {
+      isSpeaking = false;
+      document.getElementById('subtitleText').classList.remove('speaking');
+      document.getElementById('speakingIndicator').classList.remove('active');
+    };
+
+    speechSynthesis.speak(utt);
+  }
+
+  function stopSpeech() {
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+    isSpeaking = false;
+    document.getElementById('subtitleText').classList.remove('speaking');
+    document.getElementById('speakingIndicator').classList.remove('active');
+  }
+
+  // ─── Status ───────────────────────────────────────────────────────────────
+  function setStatus(type, msg) {
+    const el = document.getElementById('status');
+    el.className = type;
+    el.innerHTML = type === 'loading'
+      ? `<div class="spinner"></div><span>${msg}</span>`
+      : `<span>${type === 'error' ? '⚠️ ' : '✓ '}${msg}</span>`;
+  }
+  function clearStatus() {
+    const el = document.getElementById('status');
+    el.className = '';
+    el.style.display = 'none';
+  }
+
+  // ─── Load Video ───────────────────────────────────────────────────────────
+  async function loadVideo() {
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) { setStatus('error', 'กรุณาใส่ลิ๊งวีดิโอ'); return; }
+
+    const btn = document.getElementById('loadBtn');
+    btn.disabled = true;
+
+    stopSync();
+    stopSpeech();
+    subtitles = [];
+    filteredSubs = [];
+    currentSubIdx = -1;
+    lastSpokenIdx = -1;
+    document.getElementById('subtitleListInner').innerHTML = '';
+    document.getElementById('subtitleText').textContent = '';
+    document.getElementById('subtitleText').classList.add('empty');
+    document.getElementById('videoSection').classList.remove('visible');
+    document.getElementById('subtitleSection').classList.remove('visible');
+    document.getElementById('welcome').style.display = 'none';
+    document.getElementById('noTtsWarn').classList.remove('visible');
+    document.getElementById('directNotice').classList.remove('visible');
+
+    if (isDirectVideoUrl(url)) {
+      loadDirectVideo(url);
+      btn.disabled = false;
+      return;
+    }
+
+    if (!isYouTubeUrl(url)) {
+      setStatus('error', 'รองรับ YouTube และลิ๊งไฟล์ตรง (.mp4 .webm .ogg .mov) เท่านั้น');
+      document.getElementById('welcome').style.display = 'block';
+      btn.disabled = false;
+      return;
+    }
+
+    setStatus('loading', 'กำลังโหลดวีดิโอและสร้างคำบรรยายภาษาไทย...');
+
+    try {
+      const res = await fetch('/api/video-subtitles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'เกิดข้อผิดพลาด');
+
+      subtitles = data.subtitles || [];
+      filteredSubs = [...subtitles];
+
+      videoMode = 'youtube';
+      hideDirectPlayer();
+      document.getElementById('videoTitle').textContent = data.title || '';
+      embedYouTube(data.videoId);
+      renderSubtitleList(filteredSubs);
+      document.getElementById('subCount').textContent = `${subtitles.length} บรรทัด`;
+      document.getElementById('videoSection').classList.add('visible');
+      document.getElementById('subtitleSection').classList.add('visible');
+
+      setStatus('success', `โหลดคำบรรยาย ${subtitles.length} บรรทัดสำเร็จ (แปลจาก ${data.sourceLang || 'en'} → ไทย)`);
+      setTimeout(clearStatus, 4000);
+    } catch (err) {
+      setStatus('error', err.message);
+      document.getElementById('welcome').style.display = 'block';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ─── Direct Video ─────────────────────────────────────────────────────────
+  function loadDirectVideo(url) {
+    videoMode = 'direct';
+    if (player) { player.destroy(); player = null; }
+
+    // Hide YouTube placeholder, show HTML5 player
+    document.getElementById('ytPlayer').style.display = 'none';
+    directPlayer = document.getElementById('directPlayer');
+    directPlayer.src = url;
+    directPlayer.classList.add('active');
+
+    directPlayer.onplay = () => startSync();
+    directPlayer.onpause = directPlayer.onended = () => {
+      stopSync();
+      if (dubbingEnabled) stopSpeech();
+    };
+    directPlayer.onerror = () => {
+      setStatus('error', 'โหลดวีดิโอไม่ได้ — ตรวจสอบลิ๊งหรือ CORS ของเซิร์ฟเวอร์ต้นทาง');
+    };
+
+    // Extract filename as title
+    const filename = url.split('/').pop().split('?')[0] || 'วีดิโอ';
+    document.getElementById('videoTitle').textContent = decodeURIComponent(filename);
+    document.getElementById('directNotice').classList.add('visible');
+    document.getElementById('videoSection').classList.add('visible');
+
+    // Lower volume if dubbing already on
+    if (dubbingEnabled) directPlayer.volume = origVol / 100;
+
+    clearStatus();
+  }
+
+  function hideDirectPlayer() {
+    const dp = document.getElementById('directPlayer');
+    dp.pause();
+    dp.src = '';
+    dp.classList.remove('active');
+    document.getElementById('ytPlayer').style.display = '';
+    directPlayer = null;
+  }
+
+  // ─── YouTube Embed ────────────────────────────────────────────────────────
+  function embedYouTube(videoId) {
+    if (player) { player.destroy(); player = null; }
+    player = new YT.Player('ytPlayer', {
+      videoId,
+      playerVars: { rel: 0, modestbranding: 1 },
+      events: {
+        onReady: () => {
+          if (dubbingEnabled) player.setVolume(origVol);
+          startSync();
+        },
+        onStateChange: (e) => {
+          if (e.data === YT.PlayerState.PLAYING) {
+            startSync();
+          } else {
+            stopSync();
+            if (dubbingEnabled) stopSpeech();
+          }
+        },
+      },
+    });
+  }
+
+  // ─── Sync Loop ────────────────────────────────────────────────────────────
+  function startSync() {
+    stopSync();
+    syncInterval = setInterval(syncSubtitle, 200);
+  }
+
+  function stopSync() {
+    if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
+  }
+
+  function syncSubtitle() {
+    const time = getCurrentTime();
+    const idx = findSubtitle(time);
+
+    if (idx !== currentSubIdx) {
+      currentSubIdx = idx;
+      const textEl = document.getElementById('subtitleText');
+
+      if (idx >= 0) {
+        const text = subtitles[idx].text;
+        if (subtitlesVisible) {
+          textEl.textContent = text;
+          textEl.classList.remove('empty');
+        }
+        // Trigger TTS only when entering a new subtitle
+        if (dubbingEnabled && idx !== lastSpokenIdx) {
+          lastSpokenIdx = idx;
+          speak(text);
+        }
+      } else {
+        textEl.textContent = '';
+        textEl.classList.add('empty');
+        if (dubbingEnabled) stopSpeech();
+      }
+
+      highlightListItem(idx);
+    }
+
+    const total = subtitles.length;
+    const done = subtitles.filter(s => s.end <= time).length;
+    document.getElementById('progressInfo').textContent = total ? `${done}/${total}` : '';
+  }
+
+  function findSubtitle(time) {
+    let lo = 0, hi = subtitles.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (subtitles[mid].end < time) lo = mid + 1;
+      else if (subtitles[mid].start > time) hi = mid - 1;
+      else return mid;
+    }
+    return -1;
+  }
+
+  // ─── Highlight list ───────────────────────────────────────────────────────
+  function highlightListItem(idx) {
+    document.querySelectorAll('.sub-item').forEach(el => {
+      el.classList.remove('active', 'speaking-row');
+    });
+    if (idx < 0) return;
+    const el = document.getElementById(`sub-${idx}`);
+    if (!el) return;
+    el.classList.add(dubbingEnabled ? 'speaking-row' : 'active');
+
+    const list = document.querySelector('.subtitle-list');
+    const elTop = el.offsetTop - list.offsetTop;
+    const scrollTop = list.scrollTop;
+    const listH = list.clientHeight;
+    if (elTop < scrollTop + 40 || elTop > scrollTop + listH - 80) {
+      list.scrollTo({ top: elTop - listH / 2, behavior: 'smooth' });
+    }
+  }
+
+  // ─── Render List ──────────────────────────────────────────────────────────
+  function renderSubtitleList(subs) {
+    const inner = document.getElementById('subtitleListInner');
+    if (!subs.length) {
+      inner.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:0.85rem;">ไม่พบคำบรรยาย</div>';
+      return;
+    }
+    inner.innerHTML = subs.map(s => {
+      const origIdx = subtitles.indexOf(s);
+      return `<div class="sub-item" id="sub-${origIdx}" onclick="seekTo(${s.start})">
+        <span class="sub-time">${fmtTime(s.start)}</span>
+        <span class="sub-text">${escHtml(s.text)}</span>
+      </div>`;
+    }).join('');
+  }
+
+  function filterSubtitles(q) {
+    const kw = q.toLowerCase().trim();
+    filteredSubs = kw ? subtitles.filter(s => s.text.toLowerCase().includes(kw)) : [...subtitles];
+    renderSubtitleList(filteredSubs);
+    document.getElementById('subCount').textContent =
+      filteredSubs.length === subtitles.length
+        ? `${subtitles.length} บรรทัด`
+        : `${filteredSubs.length} / ${subtitles.length} บรรทัด`;
+  }
+
+  function seekTo(time) {
+    stopSpeech();
+    lastSpokenIdx = -1;
+    currentSubIdx = -1;
+    if (videoMode === 'direct' && directPlayer) {
+      directPlayer.currentTime = time;
+    } else if (player && player.seekTo) {
+      player.seekTo(time, true);
+    }
+  }
+
+  // ─── Toggles ──────────────────────────────────────────────────────────────
+  function toggleSubtitles() {
+    subtitlesVisible = !subtitlesVisible;
+    document.getElementById('subToggle').classList.toggle('on', subtitlesVisible);
+    const textEl = document.getElementById('subtitleText');
+    if (!subtitlesVisible) { textEl.textContent = ''; textEl.classList.add('empty'); }
+  }
+
+  function toggleDubbing() {
+    if (!('speechSynthesis' in window)) {
+      document.getElementById('noTtsWarn').classList.add('visible');
+      return;
+    }
+
+    dubbingEnabled = !dubbingEnabled;
+    const dubToggle = document.getElementById('dubToggle');
+    dubToggle.classList.toggle('on', dubbingEnabled);
+    dubToggle.classList.toggle('on-blue', dubbingEnabled);
+    document.getElementById('volumePanel').classList.toggle('visible', dubbingEnabled);
+
+    if (dubbingEnabled) {
+      // Check Thai voice
+      if (!thaiVoice) {
+        document.getElementById('noTtsWarn').classList.add('visible');
+      } else {
+        document.getElementById('noTtsWarn').classList.remove('visible');
+      }
+      // Lower original video volume
+      setPlayerVolume(origVol);
+      lastSpokenIdx = -1;
+    } else {
+      stopSpeech();
+      setPlayerVolume(100);
+      document.getElementById('noTtsWarn').classList.remove('visible');
+    }
+  }
+
+  // ─── Volume Controls ──────────────────────────────────────────────────────
+  function updateTtsRate(val) {
+    ttsRate = parseFloat(val);
+    document.getElementById('ttsRateVal').textContent = `${ttsRate.toFixed(2)}×`;
+  }
+
+  function setPlayerVolume(pct) {
+    if (videoMode === 'direct' && directPlayer) directPlayer.volume = pct / 100;
+    else if (player && player.setVolume) player.setVolume(pct);
+  }
+
+  function updateOrigVol(val) {
+    origVol = parseInt(val);
+    document.getElementById('origVolVal').textContent = `${origVol}%`;
+    if (dubbingEnabled) setPlayerVolume(origVol);
+  }
+
+  function updateTtsVol(val) {
+    ttsVol = parseFloat(val);
+    document.getElementById('ttsVolVal').textContent = `${Math.round(ttsVol * 100)}%`;
+  }
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+  function fmtTime(sec) {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // ─── Event Listeners ──────────────────────────────────────────────────────
+  document.getElementById('urlInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') loadVideo();
+  });
+
+  document.getElementById('urlInput').addEventListener('paste', () => {
+    setTimeout(() => {
+      const val = document.getElementById('urlInput').value.trim();
+      if (isYouTubeUrl(val) || isDirectVideoUrl(val)) loadVideo();
+    }, 50);
+  });
+
+  // Init TTS on first user interaction (required by some browsers)
+  document.addEventListener('click', () => { initTTS(); }, { once: true });
+  initTTS();
+</script>
+
+</body>
+</html>
