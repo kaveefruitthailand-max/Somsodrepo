@@ -1,0 +1,9 @@
+{
+  "name": "appsomsod-functions",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0",
+    "@netlify/blobs": "^8.1.0"
+  }
+}
