@@ -1,0 +1,8579 @@
+// CONSTANTS
+const EMOJIS=['💬','📋','🚀','🔔','💡','🛒','📦','💰','🏪','👥','⚡','🔧','📊','🎯','🌟','🍊'];
+const COLORS=['#4f8ef7','#38c97a','#f5a623','#e25c5c','#a855f7','#06b6d4','#f97316','#ec4899','#84cc16','#6366f1'];
+// Built-in Firebase Realtime Database — hard-coded so end users don't have to enter it
+const DEFAULT_FB_URL='https://my-org-1f7c8-default-rtdb.asia-southeast1.firebasedatabase.app';
+const MEMBER_SESSION_MS=24*60*60*1000;
+// Max number of simultaneous side-popup chat rooms that can be created
+const MAX_CHAT_ROOMS=3;
+const APP_STATE_ENDPOINTS=['/api/app-state','/.netlify/functions/app-state'];
+const APP_STATE_PULL_MS=5000;
+
+// ── Hierarchical catalog: categories → items
+// Default seed; runtime copy in `CATEGORIES` is loaded from localStorage (key: org_cats)
+const DEFAULT_CATEGORIES=[
+  {id:'raw',icon:'🍊',name:'วัตถุดิบ',items:[
+    {name:'ส้มสายน้ำผึ้ง',unit:'กก',price:23},
+    {name:'ส้มเขียวหวาน',unit:'กก',price:0},
+    {name:'น้ำตาล',unit:'กก',price:0},
+    {name:'น้ำแข็งก้อน',unit:'ถุง',price:40},
+    {name:'น้ำแข็งป่น',unit:'ถุง',price:45},
+    {name:'เกลือ',unit:'กก',price:0},
+    {name:'นม',unit:'กระป๋อง',price:0},
+    {name:'สี',unit:'ขวด',price:0},
+  ]},
+  {id:'bottle',icon:'🧴',name:'บรรจุภัณฑ์ / ขวด',items:[
+    {name:'ขวดมินิขุ่น 120 ml',unit:'ขวด',price:0},
+    {name:'ขวดแบน 220 ml',unit:'ขวด',price:0},
+    {name:'ขวดสามเหลี่ยม 220 ml',unit:'ขวด',price:0},
+    {name:'ขวด 500 ml',unit:'ขวด',price:0},
+    {name:'ขวด A',unit:'แพ็ค',price:0},
+    {name:'ฝาขวด',unit:'แพ็ค',price:0},
+  ]},
+  {id:'supply',icon:'🧰',name:'วัสดุสิ้นเปลือง',items:[
+    {name:'ถุงมือ',unit:'กล่อง',price:150},
+    {name:'ถุงพลาสติก',unit:'แพ็ค',price:0},
+    {name:'หลอด',unit:'แพ็ค',price:0},
+    {name:'ทิชชู',unit:'แพ็ค',price:0},
+  ]},
+  {id:'product',icon:'🥤',name:'สินค้าน้ำส้ม (ขาย)',items:[
+    {name:'น้ำส้มขุ่น 120 ml',unit:'ขวด',price:0},
+    {name:'น้ำส้มขุ่น 220 ml',unit:'ขวด',price:0},
+    {name:'น้ำส้มใส 220 ml',unit:'ขวด',price:0},
+    {name:'น้ำส้มขวด 500 ml',unit:'ขวด',price:0},
+    {name:'น้ำส้มแก้ว',unit:'แก้ว',price:0},
+  ]},
+  {id:'wage',icon:'👷',name:'ค่าแรง / เบิกเงิน',items:[
+    {name:'บอม — เบิกเงินรายวัน',unit:'วัน',price:0},
+    {name:'บอม — ค่าแรง',unit:'วัน',price:0},
+    {name:'วิโรจน์ — เบิกล่วงหน้า',unit:'วัน',price:0},
+    {name:'วิโรจน์ — ค่าแรง',unit:'วัน',price:0},
+    {name:'ค่าแรงพนักงาน',unit:'วัน',price:0},
+  ]},
+  {id:'sales',icon:'🚚',name:'ช่องทางขาย',items:[
+    {name:'หน้าร้าน',unit:'ครั้ง',price:0},
+    {name:'ส่งทะเลไทย',unit:'ครั้ง',price:0},
+    {name:'ส่งรถแนน',unit:'ครั้ง',price:0},
+    {name:'ส่งรถบอม',unit:'ครั้ง',price:0},
+    {name:'ส่งรถหมู+เตย',unit:'ครั้ง',price:0},
+    {name:'น้ำส้มป้า',unit:'ครั้ง',price:0},
+  ]},
+  {id:'other',icon:'💼',name:'ค่าใช้จ่ายอื่นๆ',items:[
+    {name:'ค่าน้ำมันรถ',unit:'ครั้ง',price:0},
+    {name:'ค่าน้ำ',unit:'เดือน',price:0},
+    {name:'ค่าไฟ',unit:'เดือน',price:0},
+    {name:'ค่าเช่า',unit:'เดือน',price:0},
+    {name:'ค่าซ่อม',unit:'ครั้ง',price:0},
+    {name:'ค่าอุปกรณ์',unit:'ครั้ง',price:0},
+  ]},
+];
+let CATEGORIES=JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
+const UNITS=['กก','กิโล','กล่อง','แพ็ค','กระสอบ','ขวด','วัน','ชิ้น','ลัง','ถุง','ถาด','แก้ว','ครั้ง','เดือน','ลูก','กระป๋อง'];
+const prodKey=(cat,name)=>cat+'::'+name;
+
+// SHARED STATE
+let profile={name:'',color:COLORS[0]};
+let notifyOn=false,fbUrl='',fbOn=false;
+let fbRealtimeOn=false,fbApplying=false,fbStreams=[],fbRefreshTimers={};
+let fbRegDeleted={};
+let appStateOn=false,appStateApplying=false,appStateSyncing=false,appStateTimer=null,appStatePushTimer=null,appStateRevision=0,appStateClientId='',appStateInitialPullDone=false,appStatePendingReason='',appStatePullPromise=null;
+let setupColor=COLORS[0];
+let currentApp='chat';
+
+// USER DIRECTORY + LEVELS (registration + admin approval)
+// Users are stored in localStorage('org_reg_users') with:
+//   {id4, realName, nickname, email, picture, selfie, level, color,
+//    approved, pendingSince, createdAt, extraRooms:[], botOptIn:true}
+// Master admin (MASTER_ADMIN_EMAIL) is auto-level 5.
+let regUsers=[];
+// Unit conversion rules (admin-only room): [{id, fromQty, fromName, fromUnit, toQty, toName, toUnit}]
+let unitRules=[];
+// Orange-juice stock volume (admin-only room): {items:[{id,name,bottleMl,currentMl,threshold,history:[]}], history:[]}
+let stockVol={items:[],history:[]};
+const LEVEL_NAME={
+  1:'เด็กฝึกงาน',
+  2:'ผู้อยู่รอด',
+  3:'ผู้ฝึกสอน',
+  4:'Manager',
+  5:'Admin'
+};
+const LEVEL_COLOR={1:'#94a3b8',2:'#06b6d4',3:'#f59e0b',4:'#6366f1',5:'#e11d48'};
+// Manager code unlocks product / ID edit pages
+const MANAGER_CODE='SS000';
+const AVATAR_PRESET=[
+  {id:'girl_kid',emoji:'👧',label:'เด็กหญิง'},
+  {id:'boy_kid',emoji:'👦',label:'เด็กชาย'},
+  {id:'woman',emoji:'🙋‍♀️',label:'ผู้หญิง'},
+  {id:'man',emoji:'🙋‍♂️',label:'ผู้ชาย'},
+  {id:'granny',emoji:'👵',label:'คุณยาย'},
+  {id:'grandpa',emoji:'👴',label:'คุณตา'},
+  {id:'clown',emoji:'🤡',label:'ตลก'},
+  {id:'alien',emoji:'👽',label:'เอเลี่ยน'},
+  {id:'nerd',emoji:'🤓',label:'แว่นหนา'},
+  {id:'cool',emoji:'😎',label:'เท่'},
+  {id:'cat',emoji:'🐱',label:'แมว'},
+  {id:'orange',emoji:'🍊',label:'ส้ม'}
+];
+function genRandomId4(){
+  for(let i=0;i<500;i++){
+    const id=String(Math.floor(1000+Math.random()*9000));
+    if(!regUsers.some(u=>u.id4===id))return id;
+  }
+  return String(1000+regUsers.length);
+}
+function regFindByEmail(em){
+  const e=(em||'').toLowerCase();if(!e)return null;
+  return regUsers.find(u=>(u.email||'').toLowerCase()===e)||null;
+}
+function regFindById4(id){return regUsers.find(u=>u.id4===id)||null;}
+function isMemberSessionExpired(p){
+  if(!p||!p.memberLogin)return false;
+  return !p.expiresAt||Date.now()>Number(p.expiresAt);
+}
+function clearExpiredProfile(){
+  localStorage.removeItem('org_profile');
+  sessionStorage.removeItem('org_profile');
+  profile={name:'',color:COLORS[0]};
+}
+function getAppStateClientId(){
+  if(!appStateClientId){
+    appStateClientId=localStorage.getItem('org_app_state_client')||('client_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8));
+    localStorage.setItem('org_app_state_client',appStateClientId);
+  }
+  return appStateClientId;
+}
+function saveRegUsers(){
+  saveLS('org_reg_users',regUsers);
+  scheduleAppStatePush('regUsers');
+  if(!fbApplying)fbSaveRegUsers();
+}
+function saveRegDeleted(){saveLS('org_reg_deleted',fbRegDeleted||{});}
+function markRegDeleted(id4){
+  if(!id4)return;
+  fbRegDeleted[id4]=Date.now();
+  saveRegDeleted();
+  if(fbOn)fbSet('regDeleted/'+id4,fbRegDeleted[id4]).catch(()=>{});
+}
+function regUsersToFB(){
+  const out={};
+  (regUsers||[]).forEach(u=>{if(u&&u.id4&&!fbRegDeleted[u.id4])out[u.id4]=u;});
+  return out;
+}
+// Current signed-in user (may match a regUser by email, or fallback master-admin)
+function currentUserObj(){
+  if(!profile)return null;
+  if(profile.id4){
+    const u=regFindById4(profile.id4);
+    if(u)return u;
+  }
+  if(profile.email){
+    const u=regFindByEmail(profile.email);
+    if(u)return u;
+  }
+  if(isMasterAdmin&&isMasterAdmin()){
+    return {id4:'0001',realName:profile.name||'Master',nickname:profile.name||'Admin',
+      email:profile.email||MASTER_ADMIN_EMAIL,picture:profile.picture||'',
+      level:5,color:profile.color||'#ff7a00',approved:true};
+  }
+  // Local fallback for legacy profiles that have not matched a registered ID
+  return {id4:'',realName:profile.name||'',nickname:profile.name||'',
+    email:profile.email||'',picture:profile.picture||'',
+    level:profile.level||0,color:profile.color||'#4f8ef7',approved:!!profile.name};
+}
+function chatIdentity(){
+  const me=currentUserObj&&currentUserObj();
+  return {
+    sender:(me&&(me.nickname||me.name||me.realName))||profile.name||'ไม่ระบุ',
+    email:profile.email||'',
+    id4:me?me.id4:'',
+    level:me?me.level:0,
+    color:(me&&me.color)||profile.color||COLORS[0],
+    picture:(me&&me.picture)||profile.picture||'',
+    avatarEmoji:(me&&me.avatarEmoji)||profile.avatarEmoji||''
+  };
+}
+function chatAvatarHtml(m,cls){
+  const name=m&&m.sender||'?';
+  const color=m&&m.color||'#94a3b8';
+  const klass=cls||'chat-avatar';
+  if(m&&m.picture)return `<span class="${klass}" style="background:${escAttr(color)}"><img src="${escAttr(m.picture)}" alt=""/></span>`;
+  if(m&&m.avatarEmoji)return `<span class="${klass}" style="background:${escAttr(color)}">${escHtml(m.avatarEmoji)}</span>`;
+  return `<span class="${klass}" style="background:${escAttr(color)}">${escHtml((name||'?').slice(0,2).toUpperCase())}</span>`;
+}
+function currentUserCanDeleteChat(){
+  const me=currentUserObj&&currentUserObj();
+  return !!(profile&&profile.localAdmin)||isMasterAdmin()||(me&&Number(me.level)>=5)||adminUnlockedUntil()>Date.now();
+}
+// Can the current user see this room/category? Defaults visible for L3+, gated for L1.
+function userCanSeeRoom(rid){
+  const me=currentUserObj();
+  if(!me||!me.approved)return false;
+  const lv=me.level||0;
+  if(lv>=3)return true; // L3+ see everything
+  if(lv===5||isMasterAdmin())return true;
+  const extra=me.extraRooms||[];
+  if(extra.includes(rid))return true;
+  // L1/L2 default — must be in extraRooms list set by admin
+  return false;
+}
+
+// FINANCE STATE
+let finEntries=[];
+let ec=0,ic=0,fMsgType='normal';
+let editingId=null;
+
+// INVENTORY STATE
+let products=[];          // [{id,category,name,unit,price,reorder,stock,cost}]
+let movements=[];         // last 200 movements
+let moveCtx=null;         // currently acting on product + kind
+
+// CENTRAL PRODUCT LIST (รายการสินค้า) — single source of truth
+// productList[].kind = 'liquid' | 'count'
+// productList[].units[] — list of all units; the first entry is the base.
+//   each unit: {id, name, basedOn:null|<unitId>, qty:Number}
+//   base: basedOn=null, qty=1 (qty is "ml per base unit" for liquid via baseMl, or always 1 piece for count)
+// productList[].baseMl — for liquid only; ml per base unit
+// productList[].basePrice — price per base unit
+let productList=[];
+let plEditingId=null;        // current product being edited (null when adding)
+
+// SYNC (Google Sheets)
+let gsUrl='',gsOn=false;
+let gsSheetUrl='';
+let syncQueue=[];
+let syncing=false;
+let directSyncing=false;
+
+// CHAT STATE
+let rooms=[],currentRoom=null,chatMsgType='normal';
+let selEmoji=EMOJIS[0],selColor=COLORS[0];
+let pendingAtt=null; // {kind:'image'|'file'|'sticker', name, size, mime, data, stickerId}
+const STICKER_COUNT=16;
+const CHAT_FILE_MAX=600*1024; // 600KB safety cap for non-image files
+const CAMERA_VIDEO_MAX_BYTES=7*1024*1024;
+function stickerBgPos(i){const col=i%4,row=Math.floor(i/4);return (col*100/3).toFixed(2)+'% '+(row*100/3).toFixed(2)+'%';}
+
+// SALES QUEUE + ADMIN + CHAT DRAWER STATE
+let saleQueue=[];                 // [{name,category,qty,unit,price,total}]
+let cdMessages=[];                // chat drawer messages (global chat)
+let cdPendingAtt=null;            // attachment pending send in chat drawer
+let cdOpen=false;
+let cdCollapsedCats={};           // {catId:true}
+// Customer-picker database removed — sales rooms no longer use a regional picker.
+const MASTER_ADMIN_EMAIL='kaveefruit.thailand@gmail.com';
+let roles=[];                     // [{id,name,perms:{key:true},builtin?:true}]
+let userRoles=[];                 // [{email,roleId}]
+let auditLog=[];                  // [{ts,by,byEmail,action,target,details}]
+const ALL_PERMS=[
+  {k:'edit_room',      l:'เพิ่ม/แก้ไข/ลบ หมวดหมู่และห้องขาย'},
+  {k:'edit_sale',      l:'แก้ไข/ลบ รายการขายในห้อง'},
+  {k:'edit_profile',   l:'แก้ไขโปรไฟล์ผู้ใช้'},
+  {k:'edit_category',  l:'จัดการหมวดหมู่สินค้า'},
+  {k:'edit_sheets',    l:'ตั้งค่า Google Sheets'},
+  {k:'open_sheets',    l:'เปิด Google Sheets'},
+  {k:'use_admin',      l:'เข้าถึงโหมดแอดมิน (จัดการตำแหน่ง)'}
+];
+const DELETED_ROOMS_KEY='org_deleted_room_ids';
+const DELETED_PRODUCTS_KEY='org_deleted_product_ids';
+
+// Utility helpers
+function saveLS(key,val){localStorage.setItem(key,JSON.stringify(val));}
+function getLS(key,def){try{const v=localStorage.getItem(key);return v===null?def:JSON.parse(v);}catch{return def;}}
+function emptyMsg(txt,pad){return`<div class="empty-msg"${pad?' style="padding:'+pad+'"':''}>${txt}</div>`;}
+function refreshOpenCboxes(){document.querySelectorAll('.cbox.open').forEach(b=>{try{cboxRenderList(b);}catch(_){}});}
+function switchTabStyle(sel,isActiveFn,color){document.querySelectorAll(sel).forEach(b=>{const on=isActiveFn(b);b.classList.toggle('active',on);b.style.color=on?'var(--text)':'var(--muted)';b.style.fontWeight=on?'700':'600';b.style.borderBottom=on?'2px solid '+(color||'var(--accent)'):'2px solid transparent';});}
+function loadDeletedRoomIds(){return new Set(getLS(DELETED_ROOMS_KEY,[]));}
+function rememberDeletedRoomIds(ids){
+  const set=loadDeletedRoomIds();
+  (ids||[]).forEach(id=>{if(id)set.add(id);});
+  saveLS(DELETED_ROOMS_KEY,[...set].slice(-600));
+}
+function loadDeletedProductIds(){const raw=getLS(DELETED_PRODUCTS_KEY,{});return raw&&typeof raw==='object'&&!Array.isArray(raw)?raw:{};}
+function rememberDeletedProduct(id,ts){
+  if(!id)return;
+  const deleted=loadDeletedProductIds();
+  deleted[id]=ts||Date.now();
+  saveLS(DELETED_PRODUCTS_KEY,deleted);
+}
+function saveDeletedProductIds(deleted){
+  saveLS(DELETED_PRODUCTS_KEY,deleted&&typeof deleted==='object'?deleted:{});
+}
+function clearDeletedProduct(id){
+  const deleted=loadDeletedProductIds();
+  if(deleted[id]){delete deleted[id];saveDeletedProductIds(deleted);}
+}
+function filterDeletedProducts(list,deleted){
+  const d=deleted||loadDeletedProductIds();
+  return (list||[]).filter(p=>{
+    if(!p||!p.id||!d[p.id])return true;
+    return Number(d[p.id]||0)<Number(p.updatedAt||0);
+  });
+}
+function roomWeight(r){
+  if(!r)return 0;
+  let n=0;
+  if(Array.isArray(r.sales))n+=r.sales.length*10;
+  if(Array.isArray(r.msgs))n+=r.msgs.length*3;
+  if(r.customer)n+=Object.values(r.customer).filter(Boolean).length;
+  n+=rooms.filter(x=>x.parentId===r.id).length*2;
+  return n;
+}
+function mergeRoomRecord(base, extra){
+  if(!base||!extra)return base||extra;
+  const out={...base};
+  ['name','icon','color','parentId','level','isCategory','customer','unread'].forEach(k=>{
+    if((out[k]==null||out[k]==='')&&extra[k]!=null&&extra[k]!=='')out[k]=extra[k];
+  });
+  ['sales','msgs','catalog'].forEach(k=>{
+    if(!Array.isArray(out[k]))out[k]=[];
+    if(Array.isArray(extra[k])){
+      const seen=new Set(out[k].map(v=>String(v&&v.id||JSON.stringify(v))));
+      extra[k].forEach(v=>{
+        const key=String(v&&v.id||JSON.stringify(v));
+        if(!seen.has(key)){out[k].push(v);seen.add(key);}
+      });
+    }
+  });
+  if(!out.customer&&extra.customer)out.customer=extra.customer;
+  return out;
+}
+function normalizeRooms(){
+  const deleted=loadDeletedRoomIds();
+  const byId=new Map();
+  rooms.forEach(r=>{
+    if(!r||!r.id||!r.name||!String(r.name).trim()||deleted.has(r.id))return;
+    const cur=byId.get(r.id);
+    if(!cur)byId.set(r.id,r);
+    else byId.set(r.id,roomWeight(r)>roomWeight(cur)?mergeRoomRecord(r,cur):mergeRoomRecord(cur,r));
+  });
+  let arr=[...byId.values()];
+  const byNatural=new Map();
+  const duplicateIds=[];
+  arr.forEach(r=>{
+    const lv=roomLevel(r);
+    if(lv!==4){
+      byNatural.set('id:'+r.id,r);
+      return;
+    }
+    const key=[r.parentId||'',lv,String(r.name||'').trim().toLowerCase()].join('|');
+    const cur=byNatural.get(key);
+    if(!cur){byNatural.set(key,r);return;}
+    const keep=roomWeight(r)>roomWeight(cur)?r:cur;
+    const drop=keep===r?cur:r;
+    byNatural.set(key,mergeRoomRecord(keep,drop));
+    duplicateIds.push(drop.id);
+  });
+  if(duplicateIds.length){
+    rememberDeletedRoomIds(duplicateIds);
+  }
+  rooms=[...byNatural.values()];
+  return duplicateIds.length;
+}
+
+// LOAD
+function loadAll(){
+  try{
+    const autoLogin=localStorage.getItem('org_autologin')!=='0';
+    const fromLocal=localStorage.getItem('org_profile');
+    const fromSession=sessionStorage.getItem('org_profile');
+    const rawProfile=autoLogin?(fromLocal||fromSession):fromSession;
+    profile=JSON.parse(rawProfile||'{"name":"","color":"#4f8ef7"}');
+    if(profile.google||isMemberSessionExpired(profile))clearExpiredProfile();
+    finEntries=getLS('org_fin',[]);
+    rooms=getLS('org_rooms',[]);
+    const deletedRoomIds=loadDeletedRoomIds();
+    // cleanup: ลบห้องที่ไม่มีชื่อ/id เสีย และกันห้องที่ผู้ใช้ลบแล้วไม่ให้คืนกลับมา
+    const before=rooms.length;
+    rooms=rooms.filter(r=>r&&r.id&&r.name&&r.name.trim()&&!deletedRoomIds.has(r.id)&&(!r.parentId||!deletedRoomIds.has(r.parentId)));
+    if(rooms.length!==before)saveLS('org_rooms',rooms);
+    notifyOn=localStorage.getItem('org_notify')==='true';
+    fbUrl=(localStorage.getItem('org_fburl')||'').replace(/\/$/,'');
+    products=filterDeletedProducts(getLS('org_products',[]),loadDeletedProductIds());
+    movements=getLS('org_movements',[]);
+    productList=getLS('org_product_list',[]);
+    pcLoad();
+    // Migrate older product entries: ensure every product has a categoryIds[] tag,
+    // defaulting liquids to "สินค้าสำเร็จรูป + วัตถุดิบ" and counted goods to "บรรจุภัณฑ์".
+    let _plMig=false;
+    productList.forEach(p=>{
+      if(!Array.isArray(p.categoryIds)||!p.categoryIds.length){
+        p.categoryIds=p.kind==='liquid'?['pc_finished','pc_raw']:['pc_pack'];
+        _plMig=true;
+      }
+      if(!Array.isArray(p.rooms))p.rooms=[];
+    });
+    if(_plMig)plSave();
+    gsUrl=localStorage.getItem('org_gsurl')||'';
+    gsSheetUrl=localStorage.getItem('org_gs_sheet_url')||'';
+    syncQueue=getLS('org_syncq',[]);
+    const savedCats=localStorage.getItem('org_cats');
+    if(savedCats){const arr=JSON.parse(savedCats);if(Array.isArray(arr)&&arr.length)CATEGORIES=arr;}
+    // Room-category store — separate from finance/inventory so edits don't cross-contaminate
+    try{loadRoomCats();}catch(e){}
+    // NEW state
+    cdMessages=getLS('org_chat',[]);
+    roles=getLS('org_roles',[]);
+    userRoles=getLS('org_user_roles',[]);
+    auditLog=getLS('org_audit',[]);
+    cdCollapsedCats=getLS('org_cat_collapsed',{});
+    loadRoomPurposeSettings();
+    regUsers=getLS('org_reg_users',[]);
+    fbRegDeleted=getLS('org_reg_deleted',{});
+    unitRules=getLS('org_unit_rules',[]);
+    // First-run seed for unit-conversion rules (idempotent by localStorage flag)
+    if(!localStorage.getItem('org_unit_rules_seeded')){
+      const MAIN='น้ำส้มStock';
+      const seed=[
+        // Main juice pot: 1 ถัง = 19000 ml of น้ำส้มStock (per user spec)
+        {fromName:MAIN,fromQty:1,fromUnit:'ถัง',toName:MAIN,toQty:19000,toUnit:'ml'},
+        // Bottle SKUs → stock ml (size + packaging overhead)
+        {fromName:'น้ำส้มขวดมินิขุ่น 120 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:130,toUnit:'ml'},
+        {fromName:'น้ำส้มขวดแบน 150 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:160,toUnit:'ml'},
+        {fromName:'น้ำส้มขวดหอคอย 150 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:160,toUnit:'ml'},
+        {fromName:'น้ำส้มขวดแบน 220 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:230,toUnit:'ml'},
+        {fromName:'น้ำส้มขวดสามเหลี่ยม 220 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:230,toUnit:'ml'},
+        {fromName:'น้ำส้มขวดสามเหลี่ยม 250 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:260,toUnit:'ml'},
+        {fromName:'น้ำส้มขวดกลมเรียบ 500 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:520,toUnit:'ml'},
+        {fromName:'น้ำส้มขวดกลมเรียบ 1000 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:1020,toUnit:'ml'},
+        // Bottle → pack → box aggregation rules
+        {fromName:'น้ำส้มขวดสามเหลี่ยม 220 ml',fromQty:4,fromUnit:'ขวด',toName:'น้ำส้มขวดสามเหลี่ยม 220 ml',toQty:1,toUnit:'แพ็ค'},
+        {fromName:'น้ำส้มขวดสามเหลี่ยม 220 ml',fromQty:30,fromUnit:'แพ็ค',toName:'น้ำส้มขวดสามเหลี่ยม 220 ml',toQty:1,toUnit:'กล่อง'},
+        {fromName:'น้ำส้มขวดหอคอย 150 ml',fromQty:5,fromUnit:'ขวด',toName:'น้ำส้มขวดหอคอย 150 ml',toQty:1,toUnit:'แพ็ค'},
+        {fromName:'น้ำส้มขวดหอคอย 150 ml',fromQty:30,fromUnit:'แพ็ค',toName:'น้ำส้มขวดหอคอย 150 ml',toQty:1,toUnit:'กล่อง'},
+        // DS sets (combine 1 box + 1 bottle into a bundle SKU)
+        {fromName:'น้ำส้มขวดสามเหลี่ยม 220 ml 1 กล่อง + น้ำส้มขวดกลมเรียบ 1000 ml',fromQty:1,fromUnit:'ชุด',toName:'น้ำส้ม DS ชุดL',toQty:1,toUnit:'ชุด'},
+        {fromName:'น้ำส้มขวดสามเหลี่ยม 220 ml 1 กล่อง + น้ำส้มขวดกลมเรียบ 500 ml',fromQty:1,fromUnit:'ชุด',toName:'น้ำส้ม DS ชุดS',toQty:1,toUnit:'ชุด'},
+        // Empty-bottle pack sizes (all = 150 bottles per pack)
+        {fromName:'ขวดเปล่ามินิขุ่น 120 ml',fromQty:1,fromUnit:'แพ็ค',toName:'ขวดเปล่ามินิขุ่น 120 ml',toQty:150,toUnit:'ขวด'},
+        {fromName:'ขวดเปล่าแบน 150 ml',fromQty:1,fromUnit:'แพ็ค',toName:'ขวดเปล่าแบน 150 ml',toQty:150,toUnit:'ขวด'},
+        {fromName:'ขวดเปล่าหอคอย 150 ml',fromQty:1,fromUnit:'แพ็ค',toName:'ขวดเปล่าหอคอย 150 ml',toQty:150,toUnit:'ขวด'},
+        {fromName:'ขวดเปล่าสามเหลี่ยม 220 ml',fromQty:1,fromUnit:'แพ็ค',toName:'ขวดเปล่าสามเหลี่ยม 220 ml',toQty:150,toUnit:'ขวด'},
+        {fromName:'ขวดเปล่าแบน 220 ml',fromQty:1,fromUnit:'แพ็ค',toName:'ขวดเปล่าแบน 220 ml',toQty:150,toUnit:'ขวด'},
+        {fromName:'ขวดเปล่ากลมเรียบ 500 ml',fromQty:1,fromUnit:'แพ็ค',toName:'ขวดเปล่ากลมเรียบ 500 ml',toQty:150,toUnit:'ขวด'},
+        {fromName:'ขวดเปล่ากลมเรียบ 1000 ml',fromQty:1,fromUnit:'แพ็ค',toName:'ขวดเปล่ากลมเรียบ 1000 ml',toQty:150,toUnit:'ขวด'},
+        // Filled bottle → empty bottle → stock ml (three-way mapping)
+        {fromName:'ขวดเปล่ามินิขุ่น 120 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:130,toUnit:'ml'},
+        {fromName:'ขวดเปล่าแบน 150 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:160,toUnit:'ml'},
+        {fromName:'ขวดเปล่าหอคอย 150 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:160,toUnit:'ml'},
+        {fromName:'ขวดเปล่าสามเหลี่ยม 220 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:230,toUnit:'ml'},
+        {fromName:'ขวดเปล่าแบน 220 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:230,toUnit:'ml'},
+        {fromName:'ขวดเปล่ากลมเรียบ 500 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:520,toUnit:'ml'},
+        {fromName:'ขวดเปล่ากลมเรียบ 1000 ml',fromQty:1,fromUnit:'ขวด',toName:MAIN,toQty:1020,toUnit:'ml'}
+      ];
+      const existingKeys=new Set((unitRules||[]).map(r=>r.fromName+'|'+r.fromQty+'|'+r.fromUnit+'=>'+(r.toName||'')+'|'+r.toQty+'|'+r.toUnit));
+      let addedAny=false;
+      seed.forEach((r,i)=>{
+        const k=r.fromName+'|'+r.fromQty+'|'+r.fromUnit+'=>'+r.toName+'|'+r.toQty+'|'+r.toUnit;
+        if(existingKeys.has(k))return;
+        unitRules.push({id:'u_seed_'+Date.now()+'_'+i,...r});
+        addedAny=true;
+      });
+      if(addedAny)saveLS('org_unit_rules',unitRules);
+      localStorage.setItem('org_unit_rules_seeded','1');
+    }
+    stockVol=getLS('org_stock_vol',null);
+    if(!stockVol)stockVol={items:[],history:[]};
+  }catch(e){}
+  const DEFAULT_FIN=[
+    {id:1746057602001,date:'2026-04-02',expItems:[{name:'ส้มสายน้ำผึ้ง',category:'raw',qty:2,unit:'กิโล',price:23,total:46}],incItems:[],expTotal:46,incTotal:0,net:-46},
+    {id:1746057601001,date:'2026-04-01',expItems:[{name:'ถุงมือ',category:'supply',qty:1,unit:'กล่อง',price:150,total:150},{name:'ขวดมินิขุ่น 120 ml',category:'bottle',qty:1,unit:'ขวด',price:500,total:500}],incItems:[],expTotal:650,incTotal:0,net:-650}
+  ];
+  if(!finEntries.length){finEntries=DEFAULT_FIN;saveLS('org_fin',finEntries);}
+  if(!products.length){
+    products=[];
+    CATEGORIES.forEach(c=>c.items.forEach(it=>{
+      products.push({id:prodKey(c.id,it.name),category:c.id,name:it.name,unit:it.unit||'ชิ้น',price:it.price||0,cost:it.price||0,reorder:0,stock:0});
+    }));
+    saveInv();
+  }
+  gsOn=Boolean(gsUrl);
+  if(!rooms.length){
+    const L1='cat_general',L2='grp_default',L3='shop_default';
+    rooms=[
+      {id:L1,name:'ทั่วไป',icon:'🗂️',color:'#6366f1',isCategory:true,level:1},
+      {id:L2,parentId:L1,name:'กลุ่มลูกค้าย่อย',icon:'👥',color:'#f97316',isCategory:true,level:2},
+      {id:L3,parentId:L2,name:'ร้านลูกค้า',icon:'🏪',color:'#06b6d4',isCategory:true,level:3},
+      {id:'general',parentId:L3,level:4,name:'หน้าร้าน',icon:'🏪',color:'#4f8ef7',sales:[],msgs:[],unread:0,customer:{}},
+      {id:'task',parentId:L3,level:4,name:'ส่งลูกค้า',icon:'🚚',color:'#f5a623',sales:[],msgs:[],unread:0,customer:{}}
+    ];
+    saveRooms();
+  }
+  // Migrate away: remove legacy 'urgent' quick-sales room if it still exists with no data
+  {
+    const u=rooms.find(r=>r.id==='urgent');
+    if(u&&(!Array.isArray(u.sales)||!u.sales.length)){
+      rooms=rooms.filter(r=>r.id!=='urgent');
+      saveRooms();
+    }
+  }
+  // Backfill: ensure every room has sales array + parentId + level (legacy data)
+  let needSaveRooms=false;
+  const hasCat=rooms.some(r=>r.isCategory);
+  if(!hasCat){
+    const catId='cat_default';
+    rooms.unshift({id:catId,name:'ทั่วไป',icon:'📁',color:'#6366f1',isCategory:true,level:1});
+    rooms.forEach(r=>{if(!r.isCategory&&!r.parentId)r.parentId=catId;});
+    needSaveRooms=true;
+  }
+  rooms.forEach(r=>{
+    if(r.isCategory){
+      // Legacy categories had no `level` — treat as level 1
+      if(!r.level){r.level=1;needSaveRooms=true;}
+      // Categories configured as sales rooms also carry sales/customer fields.
+      if(isSellable(r)){
+        if(!Array.isArray(r.sales)){r.sales=[];needSaveRooms=true;}
+        if(!r.customer){r.customer={};needSaveRooms=true;}
+      }
+    }else{
+      // Legacy sales rooms: always leaf (level 4)
+      if(!r.level){r.level=4;needSaveRooms=true;}
+      if(!Array.isArray(r.sales)){r.sales=[];needSaveRooms=true;}
+      if(!r.customer){r.customer={};needSaveRooms=true;}
+      if(!r.parentId){
+        const firstCat=rooms.find(x=>x.isCategory);
+        r.parentId=firstCat?firstCat.id:'cat_default';
+        needSaveRooms=true;
+      }
+    }
+  });
+  if(normalizeRooms())needSaveRooms=true;
+  if(needSaveRooms)saveRooms();
+  // Ensure built-in roles exist
+  if(!roles.length){
+    roles=[
+      {id:'role_owner',name:'เจ้าของ',builtin:true,perms:Object.fromEntries(ALL_PERMS.map(p=>[p.k,true]))},
+      {id:'role_manager',name:'ผู้จัดการ',builtin:true,perms:{edit_finance:true,edit_inventory:true,edit_room:true,edit_sale:true,edit_category:true,open_sheets:true}},
+      {id:'role_staff',name:'พนักงาน',builtin:true,perms:{edit_sale:true,open_sheets:true}},
+      {id:'role_viewer',name:'ผู้ดู',builtin:true,perms:{}}
+    ];
+    saveLS('org_roles',roles);
+  }
+}
+
+// SETUP
+function buildSetupColors(){
+  const el=document.getElementById('s-colors');
+  if(!el)return;
+  el.innerHTML=COLORS.map((c,i)=>`<div class="cdot${i===0?' sel':''}" style="background:${c}" onclick="pickSetup('${c}',this)"></div>`).join('');
+}
+function pickSetup(c,el){setupColor=c;document.querySelectorAll('#s-colors .cdot').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');}
+function startApp(){
+  const nameEl=document.getElementById('s-name');
+  const name=nameEl?nameEl.value.trim():'';
+  if(!name){alert('กรุณาเข้าสู่ระบบด้วย ID ผู้สมัครที่ได้รับการยืนยันแล้ว');return;}
+  profile={name,color:setupColor};
+  persistProfile();
+  document.getElementById('setup').style.display='none';
+  initApp();
+}
+function persistProfile(){
+  const auto=document.getElementById('s-autologin');
+  const autoLogin=!auto||auto.checked;
+  if(profile&&profile.memberLogin){
+    if(!profile.loginAt)profile.loginAt=Date.now();
+    profile.expiresAt=Number(profile.expiresAt)||profile.loginAt+MEMBER_SESSION_MS;
+  }
+  localStorage.setItem('org_autologin',autoLogin?'1':'0');
+  if(autoLogin){
+    saveLS('org_profile',profile);
+    sessionStorage.removeItem('org_profile');
+  }else{
+    sessionStorage.setItem('org_profile',JSON.stringify(profile));
+    localStorage.removeItem('org_profile');
+  }
+}
+// ── VERIFIED MEMBER LOGIN ─────────────────────────────────────────
+async function openMemberLogin(){
+  const inp=document.getElementById('member-login-id');
+  const err=document.getElementById('member-login-err');
+  if(inp)inp.value='';
+  if(err){
+    err.textContent=appStateInitialPullDone?'':'กำลังโหลดรายชื่อผู้สมัครจากระบบกลาง...';
+    err.style.display=appStateInitialPullDone?'none':'block';
+  }
+  document.getElementById('ov-member-login').classList.add('open');
+  const synced=await refreshAppStateForLogin();
+  if(err&&err.textContent==='กำลังโหลดรายชื่อผู้สมัครจากระบบกลาง...'){
+    if(synced){err.textContent='';err.style.display='none';}
+    else err.textContent='ยังโหลดรายชื่อจากระบบกลางไม่ได้ กรุณาลองอีกครั้ง';
+  }
+  setTimeout(()=>inp&&inp.focus(),60);
+}
+function memberLoginError(msg){
+  const err=document.getElementById('member-login-err');
+  if(err){err.textContent=msg;err.style.display='block';}
+}
+async function refreshAppStateForLogin(){
+  try{
+    if(!appStateTimer)startAppStateSync();
+    await pullAppState();
+    return true;
+  }catch(e){return false;}
+}
+async function submitMemberLogin(){
+  const inp=document.getElementById('member-login-id');
+  const id=(inp&&inp.value||'').replace(/\D/g,'').slice(0,4);
+  if(inp)inp.value=id;
+  if(!id||id.length!==4){memberLoginError('กรุณาใส่ ID 4 หลัก');return;}
+  if(!appStateInitialPullDone)memberLoginError('กำลังโหลดรายชื่อผู้สมัครจากระบบกลาง...');
+  await refreshAppStateForLogin();
+  const u=regFindById4(id);
+  if(!u){memberLoginError(appStateInitialPullDone?'ไม่พบ ID นี้ในระบบสมัครสมาชิก':'ยังโหลดรายชื่อจากระบบกลางไม่ได้ กรุณาลองอีกครั้ง');return;}
+  if(!u.approved){memberLoginError('ID นี้ยังรอแอดมินอนุมัติ');return;}
+  const now=Date.now();
+  profile={
+    name:u.nickname||u.realName||('ID '+id),
+    email:u.email||'',
+    picture:u.picture||'',
+    avatarEmoji:u.avatarEmoji||'',
+    color:u.color||LEVEL_COLOR[u.level||1]||COLORS[0],
+    id4:u.id4,
+    memberLogin:true,
+    loginAt:now,
+    expiresAt:now+MEMBER_SESSION_MS
+  };
+  persistProfile();
+  closeOv('ov-member-login');
+  document.getElementById('setup').style.display='none';
+  showToast('เข้าสู่ระบบ','ยืนยัน ID #'+id+' แล้ว กำลังส่งตำแหน่งปัจจุบัน');
+  try{auditAdd('login','เข้าสู่ระบบผู้สมัครที่ยืนยันแล้ว','ID #'+id);}catch(e){}
+  recordLoginLocation(u,'member');
+  initApp();
+}
+function getCurrentPositionSafe(){
+  return new Promise(resolve=>{
+    if(!navigator.geolocation){resolve({status:'unsupported'});return;}
+    navigator.geolocation.getCurrentPosition(
+      pos=>resolve({status:'ok',lat:pos.coords.latitude,lng:pos.coords.longitude,accuracy:pos.coords.accuracy,altitude:pos.coords.altitude||'',speed:pos.coords.speed||'',heading:pos.coords.heading||''}),
+      err=>resolve({status:'error',error:err&&err.message?err.message:'permission denied'}),
+      {enableHighAccuracy:true,timeout:12000,maximumAge:0}
+    );
+  });
+}
+async function recordLoginLocation(user,method){
+  const when=Date.now();
+  const loc=await getCurrentPositionSafe();
+  const event={
+    id:'login_'+when+'_'+Math.random().toString(36).slice(2,7),
+    ts:when,
+    at:new Date(when).toISOString(),
+    method:method||'member',
+    id4:user&&user.id4||profile.id4||'',
+    name:user&&(user.nickname||user.realName)||profile.name||'',
+    realName:user&&user.realName||'',
+    level:user&&user.level||'',
+    status:loc.status||'unknown',
+    lat:loc.lat||'',
+    lng:loc.lng||'',
+    accuracy:loc.accuracy||'',
+    altitude:loc.altitude||'',
+    speed:loc.speed||'',
+    heading:loc.heading||'',
+    error:loc.error||''
+  };
+  try{await fetch('/api/login-event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(event)});}catch(e){}
+  try{queueSync('loginLocation',[event]);}catch(e){}
+  if(fbOn)try{fbPush('loginLocations',event).catch(()=>{});}catch(e){}
+  if(user&&regFindById4(user.id4)){
+    user.lastLoginAt=when;
+    user.lastLoginStatus=event.status;
+    if(event.status==='ok')user.lastLoginLocation={lat:event.lat,lng:event.lng,accuracy:event.accuracy,ts:when};
+    user.updatedAt=when;
+    saveRegUsers();
+  }
+  if(event.status==='ok')showToast('ตำแหน่ง','ส่งพิกัดปัจจุบันแล้ว');
+  else showToast('ตำแหน่ง','บันทึกการล็อกอินแล้ว แต่ไม่ได้รับพิกัด');
+}
+function initApp(){
+  updateProfileUI();updateNotifyUI();
+  buildDatalists();
+  renderRooms();
+  loadChatRooms();
+  renderSidebarChatRooms();
+  updateAdminTabVisibility();
+  autoUnlockMasterAdmin();
+  updateMetrics();
+  updateInvKPI();
+  facUpdateAlertBadge();
+  const today=new Date().toISOString().slice(0,10);
+  const fDate=document.getElementById('f-date');if(fDate)fDate.value=today;
+  const fMonth=document.getElementById('filter-month');if(fMonth)fMonth.value=today.slice(0,7);
+  addRow('exp');addRow('inc');
+  if(rooms.length)selectRoom(rooms[0].id);
+  startAppStateSync();
+  if(fbUrl)connectFB();
+  if(gsOn)flushSync();
+  startChatSync();
+  // Recover Google Sheets config from server (handles cleared localStorage / new device)
+  recoverSheetsConfig();
+  // Default landing page after login: ROOM somsod live feed
+  switchApp('feed');
+  document.addEventListener('click',function(e){
+    const em=document.getElementById('emenu');
+    if(em&&!e.target.closest('.fin-acts'))em.classList.remove('open');
+  });
+}
+async function recoverSheetsConfig(){
+  try{
+    const r=await fetch('/api/sheets?op=config');
+    if(!r.ok)return;
+    const j=await r.json();
+    if(!j||!j.configured)return;
+    const serverUrl=j.url||'';
+    const changed=serverUrl&&serverUrl!==gsUrl;
+    if(serverUrl){gsUrl=serverUrl;localStorage.setItem('org_gsurl',serverUrl);}
+    gsOn=true;updateInvKPI();
+    if(!gsSheetUrl){try{await fetchSheetUrl();}catch(e){}}
+    if(changed)flushSync();
+  }catch(e){}
+}
+function updateProfileUI(){
+  const av=document.getElementById('myav');
+  av.textContent='';
+  av.style.background=profile.color||'#4f8ef7';
+  if(profile.picture){
+    av.innerHTML='<img src="'+escAttr(profile.picture)+'" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover"/>';
+  }else{
+    av.textContent=(profile.name||'?')[0].toUpperCase();
+  }
+  document.getElementById('myn').textContent=profile.name||'ไม่ระบุ';
+}
+
+// APP SWITCHER
+async function switchApp(app){
+  if(app==='admin'){
+    const allowed=hasPerm('use_admin')||isMasterAdmin()||adminUnlockedUntil()>Date.now();
+    if(!allowed){
+      const ok=await requireAdmin('เข้าสู่โหมดแอดมิน');
+      if(!ok)return;
+    }
+  }
+  currentApp=app;
+  ['finance','inventory','chat','admin','feed','l2','factory','products','ai','camera','meeting'].forEach(a=>{
+    const page=document.getElementById('page-'+a);
+    if(page)page.classList.toggle('active',a===app);
+    const btn=document.getElementById('sw-'+a);
+    if(btn)btn.classList.toggle('active',a===app);
+  });
+  document.getElementById('room-section').classList.add('show');
+  const cartPin=document.getElementById('cart-pin');
+  if(cartPin)cartPin.classList.toggle('active',app==='feed');
+  if(app==='chat'){
+    document.getElementById('chat-unread-badge').style.display='none';
+    if(currentRoom){const r=findRoom(currentRoom);if(r&&isSellable(r))selectRoom(currentRoom);else currentRoom=null;}
+    if(!currentRoom){const first=rooms.find(x=>isSellable(x));if(first)selectRoom(first.id);}
+  }
+  if(app==='inventory'){renderInventory();updateInvKPI();}
+  if(app==='admin'){renderAdmin();}
+  if(app==='feed'){renderFeed();}
+  if(app==='l2'){renderL2Page();}
+  if(app==='factory'){renderFactory();}
+  if(app==='finance'){renderFinance();}
+  if(app==='products'){renderProductList();}
+  if(app==='ai'){aiRefreshProductSelect();aiEnsureChat();}
+  if(app==='camera'){aiRefreshProductSelect();}
+}
+function updateAdminTabVisibility(){
+  const btn=document.getElementById('sw-admin');
+  if(!btn)return;
+  btn.style.display='flex';
+}
+
+// FACTORY (โรงงานน้ำส้ม) — Production / Bottling / Empty bottles / Dashboard
+const FAC_DEFAULT_JUICE_ML=800000;
+const FAC_LOW_JUICE_ML=50000;
+const FAC_LOW_BOTTLE=100;
+let facLots       = getLS('org_fac_lots',[]);
+let facBottling   = getLS('org_fac_bot',[]);
+let facEmpty      = getLS('org_fac_emp',[]);
+let facTab        = localStorage.getItem('org_fac_tab')||'prod';
+let facEditing    = null; // {kind:'lot'|'bot'|'emp', id}
+function facSave(){
+  saveLS('org_fac_lots',facLots);
+  saveLS('org_fac_bot',facBottling);
+  saveLS('org_fac_emp',facEmpty);
+  scheduleAppStatePush('factory');
+  // ROOM somsod อ่าน lots/bottling/empty ตรงจากตัวแปรเหล่านี้ — re-render ทันทีเมื่อ
+  // มีการเปลี่ยนแปลง (ผลิต Lot ใหม่ / บรรจุ / ซื้อขวด / ขายตัด ml)
+  if(typeof refreshSomsodIfActive==='function')refreshSomsodIfActive();
+}
+function facFmt(n){return Number(n||0).toLocaleString();}
+function facToday(){return new Date().toISOString().slice(0,10);}
+// Live "X Lot · น้ำส้มคงเหลือรวม Y ml" header — kept in sync after every mutation
+// that affects Lot ml (add/edit/delete Lot, bottling, or a sale that draws ml from a Lot).
+// Acts as the local equivalent of a Firestore onSnapshot on the lots-summary doc.
+function updateJuiceHeader(){
+  try{
+    const sub=document.getElementById('fac-sub');
+    if(sub){
+      const totalJuice=facLots.reduce((s,l)=>s+Math.max(0,facLotRemaining(l.lot)),0);
+      sub.textContent=`${facLots.length} Lot · น้ำส้มคงเหลือรวม ${facFmt(totalJuice)} ml`;
+    }
+    facUpdateAlertBadge();
+  }catch(_){}
+}
+// FIFO-deduct `ml` of juice from facLots for a given saleId.
+// Records one synthetic facBottling row per lot it touched, with kind='sale-draw' and saleId,
+// so facLotRemaining() reflects the draw and the rows can be reversed cleanly on delete/refund.
+// Returns {ok, applied, error} — does NOT save; caller is responsible for facSave().
+function facDeductJuiceForSale(saleId,productName,unitName,mlAmount){
+  const ml=Math.round(Number(mlAmount)||0);
+  if(ml<=0)return {ok:true,applied:0};
+  const totalRem=facLots.reduce((s,l)=>s+Math.max(0,facLotRemaining(l.lot)),0);
+  if(ml>totalRem)return {ok:false,applied:0,error:'น้ำส้มในโรงงานไม่พอ — ต้องการ '+facFmt(ml)+' ml · มี '+facFmt(totalRem)+' ml'};
+  const ordered=facLots.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  let remain=ml;
+  const today=facToday();
+  for(const l of ordered){
+    if(remain<=0)break;
+    const rem=facLotRemaining(l.lot);
+    if(rem<=0)continue;
+    const take=Math.min(rem,remain);
+    facBottling.push({
+      id:'sd_'+saleId+'_'+l.lot+'_'+Math.random().toString(36).slice(2,5),
+      kind:'sale-draw',saleId,
+      lot:l.lot,date:today,
+      productName:productName||'',unitName:unitName||'',
+      qty:0,sold:0,used:take,mlPer:0,price:0,
+    });
+    remain-=take;
+  }
+  return {ok:true,applied:ml-remain};
+}
+// Reverse all sale-draw rows for a saleId. Caller saves.
+function facRefundJuiceForSale(saleId){
+  if(!saleId)return 0;
+  const before=facBottling.length;
+  facBottling=facBottling.filter(b=>!(b&&b.kind==='sale-draw'&&b.saleId===saleId));
+  return before-facBottling.length;
+}
+// Snapshot/restore for batch-write rollback. Captures every store the sale flow mutates,
+// so a partial failure cannot leave stock, lots, finance, or movements out of sync.
+function _orgSnapshot(){
+  return {
+    rooms:JSON.parse(JSON.stringify(rooms||[])),
+    finEntries:JSON.parse(JSON.stringify(finEntries||[])),
+    products:JSON.parse(JSON.stringify(products||[])),
+    movements:JSON.parse(JSON.stringify(movements||[])),
+    facLots:JSON.parse(JSON.stringify(facLots||[])),
+    facBottling:JSON.parse(JSON.stringify(facBottling||[])),
+    stockVol:stockVol?JSON.parse(JSON.stringify(stockVol)):null,
+  };
+}
+function _orgRestore(s){
+  if(!s)return;
+  rooms.length=0;s.rooms.forEach(r=>rooms.push(r));
+  finEntries.length=0;s.finEntries.forEach(e=>finEntries.push(e));
+  products.length=0;s.products.forEach(p=>products.push(p));
+  movements.length=0;s.movements.forEach(m=>movements.push(m));
+  facLots.length=0;s.facLots.forEach(l=>facLots.push(l));
+  facBottling.length=0;s.facBottling.forEach(b=>facBottling.push(b));
+  if(s.stockVol)stockVol=JSON.parse(JSON.stringify(s.stockVol));
+  try{saveRooms();}catch(_){}
+  try{safeSaveFin();}catch(_){}
+  try{saveInv();}catch(_){}
+  try{facSave();}catch(_){}
+  try{saveStockVol();}catch(_){}
+}
+function _saleRollback(snap,msg,e){_orgRestore(snap);renderSales();renderRooms();updateJuiceHeader();alert('⛔ '+msg+'\n('+(e&&e.message?e.message:e)+')');}
+function facGenLot(date){
+  const d=(date instanceof Date)?date:new Date(date||Date.now());
+  const ymd=d.toISOString().slice(0,10).replace(/-/g,'');
+  const prefix='LOT-'+ymd+'-';
+  const n=facLots.filter(l=>(l.lot||'').indexOf(prefix)===0).length+1;
+  return prefix+String(n).padStart(2,'0');
+}
+function facLotTotal(lotNo){
+  const l=facLots.find(x=>x.lot===lotNo);
+  return l?Number(l.juiceMl||FAC_DEFAULT_JUICE_ML):FAC_DEFAULT_JUICE_ML;
+}
+function facLotUsed(lotNo){
+  return facBottling.filter(b=>b.lot===lotNo).reduce((s,b)=>s+Number(b.used||0),0);
+}
+function facLotRemaining(lotNo){return facLotTotal(lotNo)-facLotUsed(lotNo);}
+function facEmptyBalanceByProduct(productId){
+  if(!productId)return 0;
+  return facEmpty.filter(e=>e.productId===productId).reduce((s,e)=>s+Number(e.qty||0),0);
+}
+function facLotStatus(lotNo){
+  const total=facLotTotal(lotNo);
+  const rem=facLotRemaining(lotNo);
+  if(rem<=0)return 'บรรจุหมดแล้ว';
+  if(rem<total)return 'กำลังบรรจุ';
+  return 'ผลิตเสร็จ';
+}
+function facUpdateAlertBadge(){
+  const badge=document.getElementById('factory-alert-badge');
+  if(!badge)return;
+  const lowLots=facLots.filter(l=>{const r=facLotRemaining(l.lot);return r>0&&r<FAC_LOW_JUICE_ML;}).length;
+  const counts=plProductsForRoomByKind('fac_emp','count');
+  const lowBot=counts.filter(p=>facEmptyBalanceByProduct(p.id)<FAC_LOW_BOTTLE).length;
+  const n=lowLots+lowBot;
+  badge.style.display=n?'':'none';
+  badge.textContent=n;
+}
+function facSwitchTab(tab){
+  facTab=tab;localStorage.setItem('org_fac_tab',tab);
+  switchTabStyle('.factab',b=>b.dataset.tab===tab);
+  renderFactory();
+}
+
+// PRODUCT LIST (รายการสินค้า) — central catalog
+// Per-product category model — dynamic, multi-select, drives per-room dropdown filtering.
+// Each product carries `categoryIds:[]` (cat tags) and optional `rooms:[]` (override the
+// rooms inferred from the categories). Rooms are referenced by string keys defined in PL_ROOMS.
+const PL_ROOMS=[
+  {key:'sell',     name:'ห้องขายหลัก / ห้องขายย่อย', icon:'🛒'},
+  {key:'fac_bot',  name:'โรงงานน้ำส้ม · แท็บบรรจุ',   icon:'📦'},
+  {key:'fac_emp',  name:'โรงงานน้ำส้ม · แท็บขวดเปล่า', icon:'🍶'},
+  {key:'fac_prod', name:'โรงงานน้ำส้ม · แท็บผลิต',     icon:'🏭'},
+  {key:'fin_exp',  name:'รายรับ-รายจ่าย · รายจ่าย',    icon:'💰'}
+];
+const PL_CAT_DEFAULTS=[
+  {id:'pc_finished', icon:'🥤', name:'สินค้าสำเร็จรูป', rooms:['sell']},
+  {id:'pc_raw',      icon:'🧪', name:'วัตถุดิบ',        rooms:['fac_bot','fac_prod']},
+  {id:'pc_pack',     icon:'🍶', name:'บรรจุภัณฑ์',      rooms:['fac_emp']},
+  {id:'pc_supply',   icon:'🧰', name:'วัสดุสิ้นเปลือง', rooms:['fac_prod']},
+  {id:'pc_general',  icon:'💼', name:'ค่าใช้จ่ายทั่วไป',rooms:['fin_exp']}
+];
+let productCategories=[];
+function pcSave(){saveLS('org_product_categories',productCategories);}
+function pcLoad(){
+  try{
+    const raw=localStorage.getItem('org_product_categories');
+    if(raw){const arr=JSON.parse(raw);if(Array.isArray(arr)&&arr.length){productCategories=arr;return;}}
+  }catch(e){}
+  productCategories=PL_CAT_DEFAULTS.map(c=>({id:c.id,icon:c.icon,name:c.name,rooms:c.rooms.slice()}));
+  pcSave();
+}
+function pcFind(id){return productCategories.find(c=>c.id===id);}
+function pcRoomLabel(key){const r=PL_ROOMS.find(x=>x.key===key);return r?r.name:key;}
+// Effective rooms for a product = union of (rooms from each tagged category) + product.rooms override.
+function plProductRooms(p){
+  const set=new Set();
+  (p.categoryIds||[]).forEach(cid=>{const c=pcFind(cid);if(c)(c.rooms||[]).forEach(r=>set.add(r));});
+  (p.rooms||[]).forEach(r=>set.add(r));
+  return Array.from(set);
+}
+function plProductInRoom(p,roomKey){
+  if(!roomKey)return true;
+  // Finance expense room sees every category, per spec
+  if(roomKey==='fin_exp')return true;
+  return plProductRooms(p).includes(roomKey);
+}
+function plProductsForRoom(roomKey){return productList.filter(p=>plProductInRoom(p,roomKey));}
+function plProductsForRoomByKind(roomKey,kind){return productList.filter(p=>p.kind===kind&&plProductInRoom(p,roomKey));}
+
+function plSave(){saveLS('org_product_list',productList);scheduleAppStatePush('productList');}
+function plUid(prefix){return prefix+'_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7);}
+function plFind(id){return productList.find(p=>p.id===id);}
+function plFindByName(name){if(!name)return null;return productList.find(p=>p.name===name)||null;}
+function plUnitFactors(p){
+  if(!p||!Array.isArray(p.units))return {};
+  const out={};
+  const compute=(u,seen)=>{
+    if(out[u.id]!=null)return out[u.id];
+    if(seen.has(u.id))return NaN;
+    seen.add(u.id);
+    if(!u.basedOn){out[u.id]=Number(u.qty)||1;return out[u.id];}
+    const parent=p.units.find(x=>x.id===u.basedOn);
+    if(!parent){out[u.id]=Number(u.qty)||1;return out[u.id];}
+    const factor=(Number(u.qty)||0)*compute(parent,seen);
+    out[u.id]=factor;
+    return factor;
+  };
+  p.units.forEach(u=>compute(u,new Set()));
+  return out;
+}
+function plUnitRows(p){
+  if(!p||!Array.isArray(p.units))return [];
+  const factors=plUnitFactors(p);
+  const baseId=(p.units[0]||{}).id;
+  return p.units.map(u=>{
+    const baseUnits=factors[u.id]||0;
+    const totalMl=p.kind==='liquid'?baseUnits*(Number(p.baseMl)||0):0;
+    const totalPrice=baseUnits*(Number(p.basePrice)||0);
+    const parent=u.basedOn?p.units.find(x=>x.id===u.basedOn):null;
+    return {id:u.id,name:u.name||'',qty:Number(u.qty)||(u.id===baseId?1:0),basedOnName:parent?parent.name:'',isBase:u.id===baseId,baseUnits,totalMl,totalPrice};
+  });
+}
+function plPickerEntries(){
+  const out=[];
+  productList.forEach(p=>{
+    plUnitRows(p).forEach(u=>{
+      out.push({productId:p.id,unitId:u.id,kind:p.kind,name:p.name,unitName:u.name,baseUnits:u.baseUnits,ml:u.totalMl,price:u.totalPrice});
+    });
+  });
+  return out;
+}
+function plProductsByKind(kind){return productList.filter(p=>p.kind===kind);}
+let plFilterCatId='';   // empty = show all
+function plRenderCategoryFilter(){
+  const counts={};
+  productList.forEach(p=>(p.categoryIds||[]).forEach(c=>{counts[c]=(counts[c]||0)+1;}));
+  const total=productList.length;
+  const all=`<button onclick="plSetFilter('')" style="${plFilterCatId===''?'background:#0ea5e9;color:#fff':'background:#fff;color:var(--text)'};border:1px solid #0ea5e9;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer">ทั้งหมด (${total})</button>`;
+  const chips=productCategories.map(c=>{
+    const n=counts[c.id]||0;
+    const sel=plFilterCatId===c.id;
+    return `<button onclick="plSetFilter('${c.id}')" style="${sel?'background:#0ea5e9;color:#fff':'background:#fff;color:var(--text)'};border:1px solid #0ea5e9;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer">${c.icon||'📦'} ${escHtml(c.name)} (${n})</button>`;
+  }).join('');
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">${all}${chips}<button onclick="pcOpenManager()" style="border:1px dashed #0ea5e9;background:#fff;color:#0ea5e9;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer">⚙️ จัดการหมวดหมู่</button></div>`;
+}
+function plSetFilter(catId){plFilterCatId=catId||'';renderProductList();}
+function plProductMatchesFilter(p){return !plFilterCatId||(p.categoryIds||[]).includes(plFilterCatId);}
+function plLookup(productId,unitId){
+  const p=plFind(productId);if(!p)return null;
+  const rows=plUnitRows(p);
+  const u=rows.find(r=>r.id===unitId)||rows[0];
+  if(!u)return null;
+  return {product:p,unit:u};
+}
+function plFmt(n){if(n==null||isNaN(n))return '0';const v=Number(n);if(Math.abs(v)>=1000)return v.toLocaleString('th-TH',{maximumFractionDigits:2});return Math.round(v*100)/100+'';}
+
+function renderProductList(){
+  const body=document.getElementById('pl-body');if(!body)return;
+  if(!productList.length){
+    body.innerHTML=`<div style="background:#fff;border-radius:12px;padding:14px;margin-bottom:12px">${plRenderCategoryFilter()}</div>
+    <div style="padding:40px 20px;text-align:center;color:var(--muted);background:#fff;border-radius:12px">
+      <div style="font-size:48px;margin-bottom:8px">📋</div>
+      <div style="font-weight:700;color:var(--text);margin-bottom:6px">ยังไม่มีสินค้าในระบบ</div>
+      <div style="font-size:13px;margin-bottom:14px">เพิ่มสินค้าใหม่เพื่อให้ทุกห้องดึงไปใช้</div>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+        <button onclick="plOpenAdd('liquid')" style="background:#0ea5e9;color:#fff;border:none;padding:8px 14px;border-radius:8px;font-weight:700;cursor:pointer">＋ สินค้าของเหลว (มี ml)</button>
+        <button onclick="plOpenAdd('count')" style="background:#0ea5e9;color:#fff;border:none;padding:8px 14px;border-radius:8px;font-weight:700;cursor:pointer">＋ สินค้านับชิ้น</button>
+      </div>
+    </div>`;
+    return;
+  }
+  const filtered=productList.filter(plProductMatchesFilter);
+  let html=`<div style="background:#fff;border-radius:12px;padding:12px 14px;margin-bottom:12px">${plRenderCategoryFilter()}</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    <div style="flex:1;font-weight:700;color:var(--text)">${plFilterCatId?('แสดง '+filtered.length+' / '+productList.length+' รายการ'):('ทั้งหมด '+productList.length+' รายการ')}</div>
+    <button onclick="plOpenAdd('liquid')" style="background:#0ea5e9;color:#fff;border:none;padding:6px 12px;border-radius:8px;font-weight:700;cursor:pointer">＋ ของเหลว</button>
+    <button onclick="plOpenAdd('count')" style="background:#06b6d4;color:#fff;border:none;padding:6px 12px;border-radius:8px;font-weight:700;cursor:pointer">＋ นับชิ้น</button>
+  </div>`;
+  if(!filtered.length){
+    html+=`<div style="padding:24px;text-align:center;color:var(--muted);background:#fff;border-radius:12px">— ไม่มีสินค้าในหมวดนี้ —</div>`;
+  } else filtered.forEach(p=>{html+=plRenderCard(p);});
+  body.innerHTML=html;
+}
+function plRenderCard(p){
+  const rows=plUnitRows(p);
+  const baseUnitName=(p.units[0]||{}).name||'';
+  const kindBadge=p.kind==='liquid'
+    ?`<span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700">💧 ของเหลว · ${plFmt(p.baseMl)} ml/${escHtml(baseUnitName)}</span>`
+    :`<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700">🔢 นับชิ้น</span>`;
+  const cats=(p.categoryIds||[]).map(cid=>{const c=pcFind(cid);if(!c)return '';return `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700">${c.icon||'🏷️'} ${escHtml(c.name)}</span>`;}).join(' ');
+  const effRooms=plProductRooms(p);
+  const roomLabels=effRooms.length
+    ?effRooms.map(rk=>{const rr=PL_ROOMS.find(x=>x.key===rk);return rr?`${rr.icon} ${rr.name}`:rk;}).join(' · ')
+    :'(ยังไม่มีห้องที่มองเห็น)';
+  const head=p.kind==='liquid'
+    ?'<th style="padding:6px 8px">หน่วย</th><th style="padding:6px 8px">อิงจาก</th><th style="padding:6px 8px">จำนวน</th><th style="padding:6px 8px">= '+escHtml(baseUnitName)+'</th><th style="padding:6px 8px">ml รวม</th><th style="padding:6px 8px">ราคารวม</th><th></th>'
+    :'<th style="padding:6px 8px">หน่วย</th><th style="padding:6px 8px">อิงจาก</th><th style="padding:6px 8px">จำนวน</th><th style="padding:6px 8px">= '+escHtml(baseUnitName)+'</th><th style="padding:6px 8px">ราคารวม</th><th></th>';
+  const cell=(r)=>p.kind==='liquid'
+    ?`<td style="padding:6px 8px"><b>${escHtml(r.name)}</b>${r.isBase?' <small style="color:var(--muted)">(ฐาน)</small>':''}</td>
+      <td style="padding:6px 8px">${escHtml(r.basedOnName||'—')}</td>
+      <td style="padding:6px 8px">${r.isBase?'1':plFmt(r.qty)}</td>
+      <td style="padding:6px 8px">${plFmt(r.baseUnits)}</td>
+      <td style="padding:6px 8px">${plFmt(r.totalMl)} ml</td>
+      <td style="padding:6px 8px">฿${plFmt(r.totalPrice)}</td>
+      <td style="padding:6px 8px">${r.isBase?'':`<button onclick="plDeleteUnit('${p.id}','${r.id}')" style="border:none;background:#fee2e2;color:#dc2626;border-radius:4px;padding:2px 6px;cursor:pointer">✕</button>`}</td>`
+    :`<td style="padding:6px 8px"><b>${escHtml(r.name)}</b>${r.isBase?' <small style="color:var(--muted)">(ฐาน)</small>':''}</td>
+      <td style="padding:6px 8px">${escHtml(r.basedOnName||'—')}</td>
+      <td style="padding:6px 8px">${r.isBase?'1':plFmt(r.qty)}</td>
+      <td style="padding:6px 8px">${plFmt(r.baseUnits)}</td>
+      <td style="padding:6px 8px">฿${plFmt(r.totalPrice)}</td>
+      <td style="padding:6px 8px">${r.isBase?'':`<button onclick="plDeleteUnit('${p.id}','${r.id}')" style="border:none;background:#fee2e2;color:#dc2626;border-radius:4px;padding:2px 6px;cursor:pointer">✕</button>`}</td>`;
+  const rowsHtml=rows.map(r=>`<tr style="border-top:1px solid #f1f5f9">${cell(r)}</tr>`).join('');
+  return `<div style="background:#fff;border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.04)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <div style="flex:1;min-width:160px">
+        <div style="font-weight:700;color:var(--text);font-size:15px">${escHtml(p.name)}</div>
+        <div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:5px;align-items:center">${kindBadge} ${cats}<small style="color:var(--muted);margin-left:4px">ราคาฐาน ฿${plFmt(p.basePrice)} / ${escHtml(baseUnitName)}</small></div>
+        <div style="margin-top:4px;font-size:11px;color:var(--muted)">📍 ${escHtml(roomLabels)}</div>
+      </div>
+      <button onclick="plOpenAddUnit('${p.id}')" style="border:1px solid #0ea5e9;color:#0ea5e9;background:#fff;border-radius:6px;padding:5px 10px;font-weight:700;cursor:pointer">＋ หน่วย</button>
+      <button onclick="plOpenEdit('${p.id}')" style="border:1px solid var(--border);color:var(--text);background:#fff;border-radius:6px;padding:5px 10px;font-weight:700;cursor:pointer">✏️ แก้ไข</button>
+      <button onclick="plDelete('${p.id}')" style="border:1px solid #ef4444;color:#ef4444;background:#fff;border-radius:6px;padding:5px 10px;font-weight:700;cursor:pointer">🗑️</button>
+    </div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="background:#f8fafc;color:var(--muted);text-align:left">${head}</tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table></div>
+  </div>`;
+}
+// ── Product add/edit modal helpers ──
+let plEditPopupId=null;       // null when adding; product id when editing
+function plRenderEditCats(selectedIds){
+  const wrap=document.getElementById('pl-e-cats');if(!wrap)return;
+  if(!productCategories.length){wrap.innerHTML='<small style="color:var(--muted)">ยังไม่มีหมวดหมู่ — กด "⚙️ จัดการหมวดหมู่" เพื่อสร้าง</small>';return;}
+  wrap.innerHTML=productCategories.map(c=>{
+    const on=selectedIds.includes(c.id);
+    return `<label style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:${on?'#0ea5e9':'#fff'};color:${on?'#fff':'var(--text)'};border:1px solid #0ea5e9;border-radius:999px;cursor:pointer;font-size:12px;font-weight:700">
+      <input type="checkbox" data-cat="${c.id}" ${on?'checked':''} style="display:none" onchange="plToggleEditCat(this)"/>
+      <span>${c.icon||'🏷️'} ${escHtml(c.name)}</span>
+    </label>`;
+  }).join('');
+}
+function plToggleEditCat(inp){
+  const lbl=inp.closest('label');if(!lbl)return;
+  const on=inp.checked;
+  lbl.style.background=on?'#0ea5e9':'#fff';
+  lbl.style.color=on?'#fff':'var(--text)';
+}
+function plRenderEditRooms(selectedRooms){
+  const wrap=document.getElementById('pl-e-rooms');if(!wrap)return;
+  wrap.innerHTML=PL_ROOMS.map(r=>{
+    const on=selectedRooms.includes(r.key);
+    return `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;padding:6px 8px;border-radius:7px;border:1px solid var(--border);background:#fff">
+      <input type="checkbox" data-room="${r.key}" ${on?'checked':''} style="width:16px;height:16px;flex-shrink:0"/>
+      <span style="font-size:15px;flex-shrink:0">${r.icon}</span>
+      <span style="flex:1;line-height:1.3;color:var(--text)">${escHtml(r.name)}</span>
+    </label>`;
+  }).join('');
+}
+function plOpenAdd(kind){
+  plEditPopupId=null;
+  document.getElementById('pl-edit-title').textContent='＋ เพิ่มสินค้า';
+  document.getElementById('pl-e-kind').value=kind||'liquid';
+  document.getElementById('pl-e-name').value='';
+  document.getElementById('pl-e-base-unit').value='';
+  document.getElementById('pl-e-baseml').value='';
+  document.getElementById('pl-e-baseprice').value='0';
+  // Default category by kind, mirroring the load-time migration so behaviour is consistent.
+  const defaultCats=(kind==='liquid')?['pc_finished','pc_raw'].filter(id=>pcFind(id)):['pc_pack'].filter(id=>pcFind(id));
+  plRenderEditCats(defaultCats);
+  plRenderEditRooms([]);
+  plToggleEditKind();
+  document.getElementById('pl-e-kind').onchange=plToggleEditKind;
+  document.getElementById('ov-pl-edit').classList.add('open');
+  setTimeout(()=>{document.getElementById('pl-e-name').focus();},50);
+}
+function plOpenEdit(id){
+  const p=plFind(id);if(!p)return;
+  plEditPopupId=id;
+  document.getElementById('pl-edit-title').textContent='✏️ แก้ไขสินค้า';
+  document.getElementById('pl-e-kind').value=p.kind;
+  document.getElementById('pl-e-name').value=p.name||'';
+  document.getElementById('pl-e-base-unit').value=(p.units[0]||{}).name||'';
+  document.getElementById('pl-e-baseml').value=p.baseMl||'';
+  document.getElementById('pl-e-baseprice').value=p.basePrice||0;
+  plRenderEditCats((p.categoryIds||[]).slice());
+  plRenderEditRooms((p.rooms||[]).slice());
+  plToggleEditKind();
+  document.getElementById('pl-e-kind').onchange=plToggleEditKind;
+  document.getElementById('ov-pl-edit').classList.add('open');
+}
+function plToggleEditKind(){
+  const k=document.getElementById('pl-e-kind').value;
+  const wrap=document.getElementById('pl-e-baseml-wrap');
+  if(wrap)wrap.style.display=k==='liquid'?'flex':'none';
+}
+function plSavePopup(){
+  const kind=document.getElementById('pl-e-kind').value;
+  const name=(document.getElementById('pl-e-name').value||'').trim();
+  if(!name){alert('กรุณาใส่ชื่อสินค้า');return;}
+  const baseUnit=(document.getElementById('pl-e-base-unit').value||'').trim();
+  if(!baseUnit){alert('กรุณาใส่ชื่อหน่วยฐาน');return;}
+  let baseMl=0;
+  if(kind==='liquid'){
+    baseMl=Number(document.getElementById('pl-e-baseml').value)||0;
+    if(baseMl<=0){alert('ml ต้องมากกว่า 0');return;}
+  }
+  const basePrice=Number(document.getElementById('pl-e-baseprice').value)||0;
+  const catIds=Array.from(document.querySelectorAll('#pl-e-cats input[type=checkbox]:checked')).map(i=>i.dataset.cat);
+  const roomKeys=Array.from(document.querySelectorAll('#pl-e-rooms input[type=checkbox]:checked')).map(i=>i.dataset.room);
+  if(plEditPopupId){
+    const p=plFind(plEditPopupId);if(!p){closeOv('ov-pl-edit');return;}
+    if(name!==p.name&&productList.some(x=>x.name===name&&x.id!==p.id)){alert('มีสินค้าชื่อนี้อยู่แล้ว');return;}
+    p.name=name;
+    p.kind=kind;
+    if(p.units[0])p.units[0].name=baseUnit;
+    p.baseMl=kind==='liquid'?baseMl:0;
+    p.basePrice=basePrice;
+    p.categoryIds=catIds;
+    p.rooms=roomKeys;
+    plSave();renderProductList();
+    showToast('รายการสินค้า','✏️ แก้ไข "'+name+'"');
+  } else {
+    if(productList.some(p=>p.name===name)){alert('มีสินค้าชื่อนี้อยู่แล้ว');return;}
+    const baseId=plUid('u');
+    productList.push({
+      id:plUid('p'),kind,name,
+      baseMl:kind==='liquid'?baseMl:0,basePrice,
+      units:[{id:baseId,name:baseUnit,basedOn:null,qty:1}],
+      categoryIds:catIds,rooms:roomKeys
+    });
+    plSave();renderProductList();
+    showToast('รายการสินค้า','✅ เพิ่ม "'+name+'"');
+  }
+  closeOv('ov-pl-edit');
+  refreshOpenCboxes();
+  if(typeof renderFactory==='function')try{renderFactory();}catch(_){}
+}
+function plDelete(id){
+  const p=plFind(id);if(!p)return;
+  if(!confirm('ลบสินค้า "'+p.name+'" ?\n(ห้องอื่นที่อ้างอิงสินค้านี้จะใช้ไม่ได้อีก)'))return;
+  productList=productList.filter(x=>x.id!==id);plSave();renderProductList();
+  showToast('รายการสินค้า','🗑️ ลบ "'+p.name+'"');
+  refreshOpenCboxes();
+}
+function plOpenAddUnit(productId){
+  const p=plFind(productId);if(!p)return;
+  const name=(prompt('ชื่อหน่วยใหม่ (เช่น แพ็ค, กล่อง, พาเลท):','')||'').trim();
+  if(!name)return;
+  if(p.units.some(u=>u.name===name)){alert('มีหน่วยชื่อนี้แล้ว');return;}
+  const choices=p.units.map((u,i)=>(i+1)+'. '+u.name).join('\n');
+  const pickRaw=prompt('หน่วยนี้ "'+name+'" อิงจากหน่วยไหน? (พิมพ์เลข)\n'+choices,'1');
+  if(pickRaw===null)return;
+  const pickIdx=Number(pickRaw)-1;
+  if(pickIdx<0||pickIdx>=p.units.length){alert('เลือกไม่ถูกต้อง');return;}
+  const basedOn=p.units[pickIdx];
+  const qtyRaw=prompt('1 '+name+' = ? '+basedOn.name,'1');
+  if(qtyRaw===null)return;
+  const qty=Number(qtyRaw)||0;
+  if(qty<=0){alert('จำนวนต้องมากกว่า 0');return;}
+  p.units.push({id:plUid('u'),name,basedOn:basedOn.id,qty});
+  plSave();renderProductList();
+  showToast('รายการสินค้า','✅ เพิ่มหน่วย "'+name+'"');
+  refreshOpenCboxes();
+}
+function plDeleteUnit(productId,unitId){
+  const p=plFind(productId);if(!p)return;
+  if(p.units[0]&&p.units[0].id===unitId){alert('ลบหน่วยฐานไม่ได้ — ใช้ "✏️ แก้ไข" เพื่อเปลี่ยนชื่อแทน');return;}
+  const dependents=p.units.filter(u=>u.basedOn===unitId);
+  if(dependents.length){alert('ลบไม่ได้: หน่วย '+dependents.map(d=>'"'+d.name+'"').join(', ')+' อิงจากหน่วยนี้อยู่');return;}
+  const u=p.units.find(x=>x.id===unitId);if(!u)return;
+  if(!confirm('ลบหน่วย "'+u.name+'" ของ "'+p.name+'" ?'))return;
+  p.units=p.units.filter(x=>x.id!==unitId);plSave();renderProductList();
+  refreshOpenCboxes();
+}
+
+// ── Product-category manager (dynamic add/edit/delete + per-room visibility) ──
+function pcOpenManager(){pcRenderManager();document.getElementById('ov-pc').classList.add('open');}
+function pcRenderManager(){
+  const list=document.getElementById('pc-list');if(!list)return;
+  if(!productCategories.length){list.innerHTML=emptyMsg('ยังไม่มีหมวดหมู่ — เพิ่มได้ที่ด้านล่าง','20px');return;}
+  list.innerHTML=productCategories.map(c=>{
+    const used=productList.filter(p=>(p.categoryIds||[]).includes(c.id)).length;
+    const roomChips=PL_ROOMS.map(r=>{
+      const on=(c.rooms||[]).includes(r.key);
+      return `<label style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;background:${on?'#0ea5e9':'#fff'};color:${on?'#fff':'var(--text)'};border:1px solid #0ea5e9;border-radius:999px;cursor:pointer;font-size:11px;font-weight:600">
+        <input type="checkbox" data-cat="${c.id}" data-room="${r.key}" ${on?'checked':''} style="display:none" onchange="pcToggleRoom(this)"/>
+        <span>${r.icon} ${escHtml(r.name)}</span>
+      </label>`;
+    }).join('');
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;background:#fff" data-cat="${c.id}">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+        <input type="text" value="${escAttr(c.icon||'')}" maxlength="4" style="width:46px;padding:5px;text-align:center;border:1px solid var(--border);border-radius:6px" onchange="pcEditField('${c.id}','icon',this.value)"/>
+        <input type="text" value="${escAttr(c.name)}" style="flex:1;padding:6px 9px;border:1px solid var(--border);border-radius:6px" onchange="pcEditField('${c.id}','name',this.value)"/>
+        <small style="color:var(--muted);font-size:11px">${used} สินค้า</small>
+        <button onclick="pcDelete('${c.id}')" style="border:1px solid #ef4444;color:#ef4444;background:#fff;border-radius:6px;padding:4px 8px;font-size:12px;font-weight:700;cursor:pointer">🗑️</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;font-size:11px">
+        <span style="color:var(--muted);align-self:center;margin-right:4px">โชว์ในห้อง:</span>${roomChips}
+      </div>
+    </div>`;
+  }).join('');
+}
+function pcToggleRoom(inp){
+  const cid=inp.dataset.cat,rk=inp.dataset.room;
+  const c=pcFind(cid);if(!c)return;
+  if(!Array.isArray(c.rooms))c.rooms=[];
+  if(inp.checked){if(!c.rooms.includes(rk))c.rooms.push(rk);}
+  else c.rooms=c.rooms.filter(x=>x!==rk);
+  pcSave();
+  pcRenderManager();
+  if(typeof renderProductList==='function')try{renderProductList();}catch(_){}
+  refreshOpenCboxes();
+}
+function pcEditField(cid,field,val){
+  const c=pcFind(cid);if(!c)return;
+  const v=(val||'').trim();
+  if(field==='name'){
+    if(!v){alert('ชื่อหมวดหมู่ว่างไม่ได้');pcRenderManager();return;}
+    if(productCategories.some(x=>x.name===v&&x.id!==cid)){alert('มีหมวดชื่อนี้แล้ว');pcRenderManager();return;}
+    c.name=v;
+  } else if(field==='icon'){c.icon=v||'📦';}
+  pcSave();
+  if(typeof renderProductList==='function')try{renderProductList();}catch(_){}
+  refreshOpenCboxes();
+}
+function pcAdd(){
+  const icon=(document.getElementById('pc-new-icon').value||'📦').trim()||'📦';
+  const name=(document.getElementById('pc-new-name').value||'').trim();
+  if(!name){alert('กรุณาใส่ชื่อหมวดหมู่');return;}
+  if(productCategories.some(c=>c.name===name)){alert('มีหมวดชื่อนี้แล้ว');return;}
+  productCategories.push({id:plUid('pc'),icon,name,rooms:[]});
+  pcSave();pcRenderManager();
+  document.getElementById('pc-new-icon').value='';
+  document.getElementById('pc-new-name').value='';
+  showToast('หมวดหมู่','✅ เพิ่ม "'+name+'"');
+  if(typeof renderProductList==='function')try{renderProductList();}catch(_){}
+}
+function pcDelete(cid){
+  const c=pcFind(cid);if(!c)return;
+  const used=productList.filter(p=>(p.categoryIds||[]).includes(cid)).length;
+  if(!confirm('ลบหมวด "'+c.name+'" ?'+(used?' ('+used+' สินค้าจะถูกถอดหมวดนี้ออก)':'')))return;
+  productCategories=productCategories.filter(x=>x.id!==cid);pcSave();
+  productList.forEach(p=>{if(p.categoryIds&&p.categoryIds.includes(cid))p.categoryIds=p.categoryIds.filter(x=>x!==cid);});
+  plSave();
+  if(plFilterCatId===cid)plFilterCatId='';
+  pcRenderManager();
+  if(typeof renderProductList==='function')try{renderProductList();}catch(_){}
+  refreshOpenCboxes();
+  showToast('หมวดหมู่','🗑️ ลบ "'+c.name+'"');
+}
+
+function renderFactory(){
+  facUpdateAlertBadge();
+  const body=document.getElementById('fac-body');
+  if(!body)return;
+  if(facTab==='prod')body.innerHTML=facRenderProd();
+  else if(facTab==='bot'){body.innerHTML=facRenderBot();setTimeout(()=>{try{facBotRecalc();}catch(_){}},0);}
+  else if(facTab==='emp'){body.innerHTML=facRenderEmp();setTimeout(()=>{try{facEmpRecalc();}catch(_){}},0);}
+  else if(facTab==='dash')body.innerHTML=facRenderDash();
+  const sub=document.getElementById('fac-sub');
+  if(sub){
+    const totalJuice=facLots.reduce((s,l)=>s+Math.max(0,facLotRemaining(l.lot)),0);
+    sub.textContent=`${facLots.length} Lot · น้ำส้มคงเหลือรวม ${facFmt(totalJuice)} ml`;
+  }
+}
+function facRenderProd(){
+  const editing=facEditing&&facEditing.kind==='lot'?(facLots.find(x=>x.id===facEditing.id)||null):null;
+  const v=k=>editing?(editing[k]??''):'';
+  const rows=facLots.slice().reverse().map(l=>{
+    const rem=facLotRemaining(l.lot),total=Number(l.juiceMl||FAC_DEFAULT_JUICE_ML);
+    const st=facLotStatus(l.lot);
+    const pill=st==='บรรจุหมดแล้ว'?'done':(st==='กำลังบรรจุ'?'warn':'ok');
+    return `<tr><td>${l.date||''}</td><td><b>${l.lot}</b></td>
+      <td>${facFmt(total)}</td><td>${facFmt(total-rem)}</td>
+      <td style="color:${rem<FAC_LOW_JUICE_ML?'#c62828':'inherit'};font-weight:600">${facFmt(rem)}</td>
+      <td style="font-weight:600">฿${facFmt(Number(l.cost||0))}</td>
+      <td><span class="fac-pill ${pill}">${st}</span></td>
+      <td><button class="fac-del" onclick="facEditLot('${l.id}')" title="แก้ไข" style="background:#fff7d6;border-color:#fde68a;color:#854d0e">✏️</button>
+      <button class="fac-del" onclick="facDeleteLot('${l.id}')" title="ลบ">🗑️</button></td></tr>`;
+  }).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px">ยังไม่มีข้อมูล Lot การผลิต</td></tr>';
+  const titleHtml=editing?`✏️ แก้ไข Lot <b>${editing.lot}</b> <button class="fac-del" onclick="facCancelEdit()" style="margin-left:8px">✕ ยกเลิก</button>`:'➕ เพิ่ม Lot การผลิตใหม่';
+  return `
+    <div class="fac-card">
+      <div class="fac-title">${titleHtml}</div>
+      <div class="fac-grid">
+        <div class="fac-fld"><label>วันที่ผลิต</label><input type="date" id="fac-p-date" value="${editing?(editing.date||facToday()):facToday()}"></div>
+        <div class="fac-fld"><label>ปริมาณน้ำส้มที่ได้ (ml)</label><input type="number" id="fac-p-juice" value="${editing?(editing.juiceMl||FAC_DEFAULT_JUICE_ML):FAC_DEFAULT_JUICE_ML}"></div>
+        <div class="fac-fld"><label>ต้นทุนวัตถุดิบรวม (บาท) — สร้างรายจ่ายอัตโนมัติ</label><input type="number" step="0.01" id="fac-p-cost" value="${editing?(editing.cost||0):0}"></div>
+      </div>
+      <div class="fac-grid-3" style="margin-top:8px">
+        <div class="fac-fld"><label>น้ำตาล (kg)</label><input type="number" step="0.01" id="fac-p-sugar" value="${editing?(editing.sugar||0):0}"></div>
+        <div class="fac-fld"><label>เกลือ (kg)</label><input type="number" step="0.01" id="fac-p-salt" value="${editing?(editing.salt||0):0}"></div>
+        <div class="fac-fld"><label>กรดมะนาว (kg)</label><input type="number" step="0.01" id="fac-p-citric" value="${editing?(editing.citric||0):0}"></div>
+        <div class="fac-fld"><label>แพคติน (kg)</label><input type="number" step="0.01" id="fac-p-pectin" value="${editing?(editing.pectin||0):0}"></div>
+        <div class="fac-fld"><label>สีผสม (g/ml)</label><input type="number" step="0.01" id="fac-p-color" value="${editing?(editing.color||0):0}"></div>
+        <div class="fac-fld"><label>นมคาเนชั่น (กระป๋อง)</label><input type="number" id="fac-p-milk" value="${editing?(editing.milk||0):0}"></div>
+        <div class="fac-fld"><label>ส้มสายน้ำผึ้ง (kg)</label><input type="number" step="0.01" id="fac-p-orangeA" value="${editing?(editing.orangeA||0):0}"></div>
+        <div class="fac-fld"><label>ส้มเขียวหวาน (kg)</label><input type="number" step="0.01" id="fac-p-orangeB" value="${editing?(editing.orangeB||0):0}"></div>
+        <div class="fac-fld"><label>น้ำแข็งหลอด (kg)</label><input type="number" step="0.01" id="fac-p-ice" value="${editing?(editing.ice||0):0}"></div>
+      </div>
+      <div class="fac-fld" style="margin-top:8px"><label>หมายเหตุ</label><input type="text" id="fac-p-note" placeholder="เช่น รอบเช้า" value="${editing?(editing.note||''):''}"></div>
+      <button class="fac-btn" onclick="facAddLot()">${editing?'💾 บันทึกการแก้ไข':'💾 บันทึก Lot'}</button>
+    </div>
+    <div class="fac-card">
+      <div class="fac-title">📋 รายการ Lot ที่ผลิต (${facLots.length})</div>
+      <div style="overflow-x:auto">
+        <table class="fac-tbl">
+          <thead><tr><th>วันที่</th><th>Lot No.</th><th>ทั้งหมด (ml)</th><th>ใช้ไป (ml)</th><th>คงเหลือ (ml)</th><th>ต้นทุน</th><th>สถานะ</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+function facRenderBot(){
+  const editing=facEditing&&facEditing.kind==='bot'?(facBottling.find(x=>x.id===facEditing.id)||null):null;
+  const lotOpts=facLots.filter(l=>facLotRemaining(l.lot)>0||(editing&&editing.lot===l.lot))
+    .map(l=>`<option value="${l.lot}" ${editing&&editing.lot===l.lot?'selected':''}>${l.lot} — เหลือ ${facFmt(facLotRemaining(l.lot))} ml</option>`).join('')
+    ||'<option value="">(ยังไม่มี Lot ที่มีน้ำส้มคงเหลือ)</option>';
+  const liquids=plProductsForRoomByKind('fac_bot','liquid');
+  const prodOpts=liquids.length
+    ?liquids.map(p=>`<option value="${p.id}" ${editing&&editing.productId===p.id?'selected':''}>${escHtml(p.name)}</option>`).join('')
+    :'<option value="">(ยังไม่มีสินค้าหมวด "วัตถุดิบ" ในรายการสินค้า)</option>';
+  const curProdId=editing?editing.productId:(liquids[0]?liquids[0].id:'');
+  const curProd=plFind(curProdId);
+  const unitRows=curProd?plUnitRows(curProd):[];
+  const unitOpts=unitRows.length
+    ?unitRows.map(u=>`<option value="${u.id}" data-ml="${u.totalMl}" data-price="${u.totalPrice}" ${editing&&editing.unitId===u.id?'selected':''}>${escHtml(u.name)} · ${facFmt(u.totalMl)} ml · ฿${facFmt(u.totalPrice)}</option>`).join('')
+    :'<option value="">—</option>';
+  const visibleBot=facBottling.filter(b=>b&&b.kind!=='sale-draw');
+  const rows=visibleBot.slice().reverse().map(b=>{
+    const stock=Number(b.qty||0)-Number(b.sold||0);
+    const mlPer=Number(b.mlPer||b.size||0);
+    const label=b.productName?`${escHtml(b.productName)} · ${escHtml(b.unitName||'')}`:`(legacy) ${b.size||0} ml`;
+    return `<tr><td>${b.date||''}</td><td><b>${b.lot}</b></td><td>${label}</td>
+      <td>${facFmt(mlPer)}</td>
+      <td>${facFmt(b.qty)}</td><td>${facFmt(b.used)}</td>
+      <td><input type="number" min="0" value="${b.sold||0}" style="width:70px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px" onchange="facSetSold('${b.id}',this.value)"></td>
+      <td><b>${facFmt(stock)}</b></td>
+      <td><button class="fac-del" onclick="facEditBot('${b.id}')" title="แก้ไข" style="background:#fff7d6;border-color:#fde68a;color:#854d0e">✏️</button>
+      <button class="fac-del" onclick="facDeleteBot('${b.id}')" title="ลบ">🗑️</button></td></tr>`;
+  }).join('')||'<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:18px">ยังไม่มีรายการบรรจุ</td></tr>';
+  const titleHtml=editing?`✏️ แก้ไขรายการบรรจุ <button class="fac-del" onclick="facCancelEdit()" style="margin-left:8px">✕ ยกเลิก</button>`:'📦 บันทึกการบรรจุ';
+  const noProductWarn=liquids.length?'':`<div style="margin-top:8px;padding:8px 10px;background:#fef3c7;border:1px dashed #f59e0b;border-radius:8px;font-size:12px;color:#92400e">⚠️ ยังไม่มีสินค้าของเหลวในรายการสินค้า — <a href="#" onclick="event.preventDefault();switchApp('products')" style="color:#1d4ed8;text-decoration:underline">เปิดรายการสินค้า</a> เพื่อเพิ่มก่อน</div>`;
+  return `
+    <div class="fac-card">
+      <div class="fac-title">${titleHtml}</div>
+      <div class="fac-grid">
+        <div class="fac-fld"><label>วันที่บรรจุ</label><input type="date" id="fac-b-date" value="${editing?(editing.date||facToday()):facToday()}"></div>
+        <div class="fac-fld"><label>Lot No.</label><select id="fac-b-lot">${lotOpts}</select></div>
+        <div class="fac-fld"><label>สินค้า (จากรายการสินค้า)</label><select id="fac-b-prod" onchange="facBotOnProductChange()">${prodOpts}</select></div>
+        <div class="fac-fld"><label>หน่วย</label><select id="fac-b-unit" onchange="facBotRecalc()">${unitOpts}</select></div>
+        <div class="fac-fld"><label>จำนวน</label><input type="number" id="fac-b-qty" min="1" value="${editing?(editing.qty||1):1}" oninput="facBotRecalc()"></div>
+        <div class="fac-fld"><label>ราคาขาย/หน่วย (บาท) <small style="color:var(--muted)">(แก้ได้)</small></label><input type="number" step="0.01" id="fac-b-price" value="${editing?(editing.price||0):0}"></div>
+      </div>
+      <div id="fac-b-preview" style="margin-top:8px;padding:8px 10px;background:#fff7e6;border:1px dashed #f5c34a;border-radius:8px;font-size:12px;color:#7a4a00">—</div>
+      ${noProductWarn}
+      <div class="fac-fld" style="margin-top:8px"><label>หมายเหตุ</label><input type="text" id="fac-b-note" value="${editing?(editing.note||''):''}"></div>
+      <button class="fac-btn" onclick="facAddBottling()" ${liquids.length?'':'disabled'}>${editing?'💾 บันทึกการแก้ไข':'💾 บันทึกการบรรจุ'}</button>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px">⚠️ ระบบตรวจน้ำส้มคงเหลือต่อ Lot อัตโนมัติ · ราคา/ml/หน่วยดึงจาก "รายการสินค้า"</div>
+    </div>
+    <div class="fac-card">
+      <div class="fac-title">📋 ประวัติการบรรจุ (${visibleBot.length})</div>
+      <div style="overflow-x:auto">
+        <table class="fac-tbl">
+          <thead><tr><th>วันที่</th><th>Lot</th><th>สินค้า · หน่วย</th><th>ml/หน่วย</th><th>บรรจุ</th><th>ใช้น้ำส้ม (ml)</th><th>จำหน่ายแล้ว</th><th>คงคลัง</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+function facBotOnProductChange(){
+  const sel=document.getElementById('fac-b-prod');if(!sel)return;
+  const p=plFind(sel.value);if(!p)return;
+  const unitSel=document.getElementById('fac-b-unit');
+  const rows=plUnitRows(p);
+  unitSel.innerHTML=rows.map(u=>`<option value="${u.id}" data-ml="${u.totalMl}" data-price="${u.totalPrice}">${escHtml(u.name)} · ${facFmt(u.totalMl)} ml · ฿${facFmt(u.totalPrice)}</option>`).join('')||'<option value="">—</option>';
+  facBotRecalc();
+}
+function facBotRecalc(){
+  const prodSel=document.getElementById('fac-b-prod');const unitSel=document.getElementById('fac-b-unit');
+  const qty=+(document.getElementById('fac-b-qty')||{}).value||0;
+  const priceInp=document.getElementById('fac-b-price');
+  const prev=document.getElementById('fac-b-preview');
+  if(!prodSel||!unitSel||!prev)return;
+  const opt=unitSel.selectedOptions[0];
+  if(!opt){prev.textContent='—';return;}
+  const mlPer=+opt.dataset.ml||0;
+  const pricePer=+opt.dataset.price||0;
+  if(priceInp&&(priceInp.value===''||+priceInp.value===0))priceInp.value=pricePer;
+  const usedMl=qty*mlPer;
+  const totalPrice=qty*(+priceInp.value||pricePer);
+  prev.innerHTML=`💧 ใช้น้ำส้ม <b>${facFmt(usedMl)} ml</b> · มูลค่ารวม ≈ <b>฿${facFmt(Math.round(totalPrice*100)/100)}</b> · เพิ่มสต็อก FG <b>${facFmt(qty)}</b> ${escHtml(opt.textContent.split('·')[0].trim())}`;
+}
+function facRenderEmp(){
+  const editing=facEditing&&facEditing.kind==='emp'?(facEmpty.find(x=>x.id===facEditing.id)||null):null;
+  const counts=plProductsForRoomByKind('fac_emp','count');
+  const prodOpts=counts.length
+    ?counts.map(p=>`<option value="${p.id}" ${editing&&editing.productId===p.id?'selected':''}>${escHtml(p.name)}</option>`).join('')
+    :'<option value="">(ยังไม่มีสินค้าหมวด "บรรจุภัณฑ์" ในรายการสินค้า)</option>';
+  const curProdId=editing?editing.productId:(counts[0]?counts[0].id:'');
+  const curProd=plFind(curProdId);
+  const unitRows=curProd?plUnitRows(curProd):[];
+  const unitOpts=unitRows.length
+    ?unitRows.map(u=>`<option value="${u.id}" data-base="${u.baseUnits}" data-price="${u.totalPrice}" ${editing&&editing.unitId===u.id?'selected':''}>${escHtml(u.name)} · ${facFmt(u.baseUnits)} ${escHtml((curProd.units[0]||{}).name||'ชิ้น')} · ฿${facFmt(u.totalPrice)}</option>`).join('')
+    :'<option value="">—</option>';
+  const rows=facEmpty.slice().reverse().map(e=>{
+    const q=Number(e.qty||0);
+    const isAuto=(e.note||'').indexOf('AUTO')===0||e.kind==='ใช้บรรจุ';
+    const label=e.productName?`${escHtml(e.productName)}`:`(legacy ${e.size||0}ml)`;
+    return `<tr><td>${e.date||''}</td><td>${e.kind||''}</td><td>${label}</td>
+      <td style="color:${q<0?'#c62828':'#085041'};font-weight:600">${q>0?'+':''}${facFmt(q)}</td>
+      <td>${e.price?facFmt(e.price):'—'}</td>
+      <td>${e.price?facFmt(Math.abs(q)*Number(e.price)):'—'}</td>
+      <td>${e.note||''}</td>
+      <td>${isAuto?'':`<button class="fac-del" onclick="facEditEmp('${e.id}')" title="แก้ไข" style="background:#fff7d6;border-color:#fde68a;color:#854d0e">✏️</button>`}
+      <button class="fac-del" onclick="facDeleteEmp('${e.id}')" title="ลบ">🗑️</button></td></tr>`;
+  }).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px">ยังไม่มีรายการขวดเปล่า</td></tr>';
+  const balances=counts.length
+    ?counts.map(p=>{
+      const bal=facEmptyBalanceByProduct(p.id);
+      const baseName=(p.units[0]||{}).name||'ชิ้น';
+      const low=bal<FAC_LOW_BOTTLE;
+      return `<div class="k" style="${low?'background:linear-gradient(135deg,#fde2e2,#fff);border-color:#f5c2c2':''}"><div class="kl">${escHtml(p.name)}</div><div class="kv" style="${low?'color:#c62828':''}">${facFmt(bal)}</div><div class="ks">${escHtml(baseName)}</div></div>`;
+    }).join('')
+    :`<div style="grid-column:1/-1;padding:14px;color:var(--muted);text-align:center">ยังไม่มีสินค้านับชิ้น — <a href="#" onclick="event.preventDefault();switchApp('products')" style="color:#0891b2;text-decoration:underline">เพิ่มในรายการสินค้า</a></div>`;
+  const titleHtml=editing?`✏️ แก้ไขรายการขวดเปล่า <button class="fac-del" onclick="facCancelEdit()" style="margin-left:8px">✕ ยกเลิก</button>`:'🛒 บันทึกซื้อขวดเปล่าใหม่';
+  return `
+    <div class="fac-card">
+      <div class="fac-title">🍶 สต๊อกคงเหลือ (แยกตามสินค้าในรายการสินค้า)</div>
+      <div class="fac-kpi" style="grid-template-columns:repeat(3,1fr)">${balances}</div>
+    </div>
+    <div class="fac-card">
+      <div class="fac-title">${titleHtml}</div>
+      <div class="fac-grid">
+        <div class="fac-fld"><label>วันที่</label><input type="date" id="fac-e-date" value="${editing?(editing.date||facToday()):facToday()}"></div>
+        <div class="fac-fld"><label>สินค้า (จากรายการสินค้า)</label><select id="fac-e-prod" onchange="facEmpOnProductChange()">${prodOpts}</select></div>
+        <div class="fac-fld"><label>หน่วย</label><select id="fac-e-unit" onchange="facEmpRecalc()">${unitOpts}</select></div>
+        <div class="fac-fld"><label>จำนวน <small style="color:var(--muted)">(ตามหน่วยที่เลือก)</small></label><input type="number" id="fac-e-qty" min="1" value="${editing?(editing.inputQty||editing.qty||1):1}" oninput="facEmpRecalc()"></div>
+        <div class="fac-fld"><label>ราคา/หน่วย (บาท) <small style="color:var(--muted)">(แก้ได้)</small></label><input type="number" step="0.01" id="fac-e-price" value="${editing?(editing.inputPrice||editing.price||0):0}" oninput="facEmpRecalc()"></div>
+      </div>
+      <div id="fac-e-preview" style="margin-top:8px;padding:8px 10px;background:#fff7e6;border:1px dashed #f5c34a;border-radius:8px;font-size:12px;color:#7a4a00">—</div>
+      <div class="fac-fld" style="margin-top:8px"><label>Supplier / หมายเหตุ</label><input type="text" id="fac-e-note" value="${editing?(editing.note||''):''}"></div>
+      <button class="fac-btn" onclick="facAddEmpty()" ${counts.length?'':'disabled'}>${editing?'💾 บันทึกการแก้ไข':'💾 บันทึกซื้อเข้า'}</button>
+    </div>
+    <div class="fac-card">
+      <div class="fac-title">📋 ประวัติขวดเปล่า (${facEmpty.length})</div>
+      <div style="overflow-x:auto">
+        <table class="fac-tbl">
+          <thead><tr><th>วันที่</th><th>ประเภท</th><th>สินค้า</th><th>จำนวน</th><th>ราคา/หน่วย</th><th>มูลค่า</th><th>หมายเหตุ</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+function facEmpOnProductChange(){
+  const sel=document.getElementById('fac-e-prod');if(!sel)return;
+  const p=plFind(sel.value);if(!p)return;
+  const unitSel=document.getElementById('fac-e-unit');
+  const rows=plUnitRows(p);
+  const baseName=(p.units[0]||{}).name||'ชิ้น';
+  unitSel.innerHTML=rows.map(u=>`<option value="${u.id}" data-base="${u.baseUnits}" data-price="${u.totalPrice}">${escHtml(u.name)} · ${facFmt(u.baseUnits)} ${escHtml(baseName)} · ฿${facFmt(u.totalPrice)}</option>`).join('')||'<option value="">—</option>';
+  facEmpRecalc();
+}
+function facEmpRecalc(){
+  const prodSel=document.getElementById('fac-e-prod');const unitSel=document.getElementById('fac-e-unit');
+  const inputQty=Math.abs(+(document.getElementById('fac-e-qty')||{}).value||0);
+  const priceInp=document.getElementById('fac-e-price');
+  const prev=document.getElementById('fac-e-preview');
+  if(!prodSel||!unitSel||!prev)return;
+  const opt=unitSel.selectedOptions[0];
+  if(!opt){prev.textContent='—';return;}
+  const baseUnits=+opt.dataset.base||1;
+  const pricePer=+opt.dataset.price||0;
+  if(priceInp&&(priceInp.value===''||+priceInp.value===0))priceInp.value=pricePer;
+  const totalBase=inputQty*baseUnits;
+  const totalPrice=inputQty*(+priceInp.value||pricePer);
+  const p=plFind(prodSel.value);
+  const baseName=p?((p.units[0]||{}).name||'ชิ้น'):'ชิ้น';
+  prev.innerHTML=`📦 จะถูกแปลงเป็น <b>${facFmt(totalBase)} ${escHtml(baseName)}</b> · มูลค่ารวม <b>฿${facFmt(Math.round(totalPrice*100)/100)}</b>`;
+}
+function facEditEmp(id){facEditing={kind:'emp',id};renderFactory();setTimeout(facEmpRecalc,0);}
+function facRenderDash(){
+  const totalJuice=facLots.reduce((s,l)=>s+Math.max(0,facLotRemaining(l.lot)),0);
+  const realBot=facBottling.filter(b=>b&&b.kind!=='sale-draw');
+  const totalPacked=realBot.reduce((s,b)=>s+Number(b.qty||0),0);
+  const totalSold=realBot.reduce((s,b)=>s+Number(b.sold||0),0);
+  const fgStock=totalPacked-totalSold;
+  const lowLots=facLots.filter(l=>{const r=facLotRemaining(l.lot);return r>0&&r<FAC_LOW_JUICE_ML;});
+  // FG breakdown: group by productId+unitId; legacy size-only rows fall under "(legacy ###ml)"
+  const fgGroups={};
+  realBot.forEach(b=>{
+    const key=b.productId&&b.unitId?(b.productId+'|'+b.unitId):('legacy|'+(b.size||0));
+    if(!fgGroups[key])fgGroups[key]={label:b.productName?(b.productName+' · '+(b.unitName||'')):('(legacy) '+(b.size||0)+' ml'),packed:0,sold:0};
+    fgGroups[key].packed+=Number(b.qty||0);
+    fgGroups[key].sold+=Number(b.sold||0);
+  });
+  const fgRows=Object.values(fgGroups);
+  const counts=plProductsForRoomByKind('fac_emp','count');
+  const empRows=counts.map(p=>({label:p.name,bal:facEmptyBalanceByProduct(p.id),low:facEmptyBalanceByProduct(p.id)<FAC_LOW_BOTTLE}));
+  const lowBottles=empRows.filter(r=>r.low);
+  const lotRows=facLots.slice().reverse().map(l=>{
+    const total=Number(l.juiceMl||FAC_DEFAULT_JUICE_ML),rem=facLotRemaining(l.lot);
+    return `<tr><td>${l.lot}</td><td>${facFmt(total)}</td><td>${facFmt(total-rem)}</td><td style="color:${rem<FAC_LOW_JUICE_ML?'#c62828':'inherit'};font-weight:600">${facFmt(rem)}</td><td><span class="fac-pill ${facLotStatus(l.lot)==='บรรจุหมดแล้ว'?'done':(facLotStatus(l.lot)==='กำลังบรรจุ'?'warn':'ok')}">${facLotStatus(l.lot)}</span></td></tr>`;
+  }).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:14px">—</td></tr>';
+  const alerts=[];
+  if(lowLots.length)alerts.push(`<div class="fac-alert">⚠️ Lot ใกล้หมด: ${lowLots.map(l=>`${l.lot} (${facFmt(facLotRemaining(l.lot))} ml)`).join(', ')}</div>`);
+  if(lowBottles.length)alerts.push(`<div class="fac-alert">⚠️ ขวดเปล่าใกล้หมด: ${lowBottles.map(r=>`${escHtml(r.label)} (${facFmt(r.bal)})`).join(', ')}</div>`);
+  if(!alerts.length)alerts.push(`<div class="fac-alert ok">✅ สต๊อกทุกอย่างปกติ</div>`);
+  const fgHtml=fgRows.length
+    ?fgRows.map(g=>`<tr><td>${escHtml(g.label)}</td><td>${facFmt(g.packed)}</td><td>${facFmt(g.sold)}</td><td><b>${facFmt(g.packed-g.sold)}</b></td></tr>`).join('')
+    :'<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:14px">—</td></tr>';
+  const empHtml=empRows.length
+    ?empRows.map(r=>`<tr><td>${escHtml(r.label)}</td><td style="${r.low?'color:#c62828;font-weight:700':''}">${facFmt(r.bal)}</td></tr>`).join('')
+    :'<tr><td colspan="2" style="text-align:center;color:var(--muted);padding:14px">— เพิ่มสินค้านับชิ้นในรายการสินค้า —</td></tr>';
+  return `
+    <div class="fac-card">
+      <div class="fac-title">📊 สรุปภาพรวม</div>
+      <div class="fac-kpi" style="grid-template-columns:repeat(4,1fr)">
+        <div class="k"><div class="kl">น้ำส้มคงเหลือรวม</div><div class="kv">${facFmt(totalJuice)}</div><div class="ks">ml ใน ${facLots.length} Lot</div></div>
+        <div class="k"><div class="kl">บรรจุสะสม</div><div class="kv">${facFmt(totalPacked)}</div><div class="ks">หน่วย</div></div>
+        <div class="k"><div class="kl">จำหน่ายแล้ว</div><div class="kv">${facFmt(totalSold)}</div><div class="ks">หน่วย</div></div>
+        <div class="k"><div class="kl">สินค้าคงคลัง (FG)</div><div class="kv">${facFmt(fgStock)}</div><div class="ks">หน่วย</div></div>
+      </div>
+    </div>
+    <div class="fac-card">
+      <div class="fac-title">⚠️ การแจ้งเตือน</div>
+      ${alerts.join('')}
+    </div>
+    <div class="fac-card">
+      <div class="fac-title">📦 สต็อก FG (สินค้าสำเร็จรูป) — แยกตามสินค้าจากรายการสินค้า</div>
+      <table class="fac-tbl">
+        <thead><tr><th>สินค้า · หน่วย</th><th>บรรจุรวม</th><th>จำหน่าย</th><th>คงคลัง</th></tr></thead>
+        <tbody>${fgHtml}</tbody>
+      </table>
+    </div>
+    <div class="fac-card">
+      <div class="fac-title">🍶 สต็อกขวดเปล่า — แยกตามสินค้านับชิ้นจากรายการสินค้า</div>
+      <table class="fac-tbl">
+        <thead><tr><th>สินค้า</th><th>คงเหลือ</th></tr></thead>
+        <tbody>${empHtml}</tbody>
+      </table>
+    </div>
+    <div class="fac-card">
+      <div class="fac-title">🍊 น้ำส้มคงเหลือแต่ละ Lot</div>
+      <table class="fac-tbl">
+        <thead><tr><th>Lot</th><th>ทั้งหมด (ml)</th><th>ใช้ไป (ml)</th><th>คงเหลือ (ml)</th><th>สถานะ</th></tr></thead>
+        <tbody>${lotRows}</tbody>
+      </table>
+    </div>`;
+}
+function facAddLot(){
+  const date=document.getElementById('fac-p-date').value||facToday();
+  const editing=facEditing&&facEditing.kind==='lot'?facLots.find(x=>x.id===facEditing.id):null;
+  const lot=editing?editing.lot:facGenLot(date);
+  const fields={
+    sugar:+document.getElementById('fac-p-sugar').value||0,
+    salt:+document.getElementById('fac-p-salt').value||0,
+    citric:+document.getElementById('fac-p-citric').value||0,
+    pectin:+document.getElementById('fac-p-pectin').value||0,
+    color:+document.getElementById('fac-p-color').value||0,
+    milk:+document.getElementById('fac-p-milk').value||0,
+    orangeA:+document.getElementById('fac-p-orangeA').value||0,
+    orangeB:+document.getElementById('fac-p-orangeB').value||0,
+    ice:+document.getElementById('fac-p-ice').value||0,
+    juiceMl:+document.getElementById('fac-p-juice').value||FAC_DEFAULT_JUICE_ML,
+    cost:+document.getElementById('fac-p-cost').value||0,
+    note:document.getElementById('fac-p-note').value||''
+  };
+  let entry;
+  if(editing){
+    Object.assign(editing,{date,...fields});
+    entry=editing;
+  } else {
+    entry={id:'fl_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),date,lot,...fields,status:'ผลิตเสร็จ'};
+    facLots.push(entry);
+  }
+  facSave();
+  queueSync('production',[entry]);
+  facSyncLot(entry);
+  showToast&&showToast('โรงงาน',(editing?'✏️ แก้ไข ':'✅ บันทึก ')+entry.lot);
+  facEditing=null;
+  renderFactory();
+}
+function facEditLot(id){facEditing={kind:'lot',id};renderFactory();}
+function facCancelEdit(){facEditing=null;renderFactory();}
+function facDeleteLot(id){
+  const l=facLots.find(x=>x.id===id);if(!l)return;
+  const used=facLotUsed(l.lot);
+  if(used>0&&!confirm(`Lot ${l.lot} มีการบรรจุแล้ว ${facFmt(used)} ml — ลบจะไม่ลบข้อมูลในชีต Google Sheets ยืนยัน?`))return;
+  if(!used&&!confirm(`ลบ Lot ${l.lot}?`))return;
+  facLots=facLots.filter(x=>x.id!==id);facSave();
+  facRemoveFin(facFinKey('lot',id));
+  renderFactory();
+}
+function facAddBottling(){
+  const editing=facEditing&&facEditing.kind==='bot'?facBottling.find(x=>x.id===facEditing.id):null;
+  const lot=document.getElementById('fac-b-lot').value;
+  if(!lot){alert('กรุณาเลือก Lot');return;}
+  const productId=document.getElementById('fac-b-prod').value;
+  const unitId=document.getElementById('fac-b-unit').value;
+  if(!productId||!unitId){alert('กรุณาเลือกสินค้าและหน่วย (จากรายการสินค้า)');return;}
+  const lk=plLookup(productId,unitId);
+  if(!lk){alert('ไม่พบสินค้าในรายการสินค้า — โปรดเลือกใหม่');return;}
+  const mlPer=Number(lk.unit.totalMl)||0;
+  if(mlPer<=0){alert('สินค้านี้ไม่มี ml ต่อหน่วย — แก้ไขในรายการสินค้าก่อน');return;}
+  const qty=+document.getElementById('fac-b-qty').value||0;
+  if(qty<=0){alert('กรุณาใส่จำนวน > 0');return;}
+  const used=mlPer*qty;
+  const prevUsed=editing&&editing.lot===lot?Number(editing.used||0):0;
+  const remBefore=facLotRemaining(lot)+prevUsed;
+  if(used>remBefore){alert(`⛔ น้ำส้มใน ${lot} ไม่พอ!\nคงเหลือ ${facFmt(remBefore)} ml · ต้องใช้ ${facFmt(used)} ml`);return;}
+  const date=document.getElementById('fac-b-date').value||facToday();
+  const note=document.getElementById('fac-b-note').value||'';
+  const price=+document.getElementById('fac-b-price').value||Number(lk.unit.totalPrice)||0;
+  const snapshot={
+    productId,unitId,
+    productName:lk.product.name,
+    unitName:lk.unit.name,
+    size:mlPer,
+    mlPer,qty,used,remaining:remBefore-used,price,note,date,lot
+  };
+  if(editing){
+    Object.assign(editing,snapshot);
+    facSave();
+    queueSync('bottling',[editing]);
+    facSyncBottling(editing);
+    showToast&&showToast('โรงงาน',`✏️ แก้ไข ${facFmt(qty)} ${lk.unit.name} (${lk.product.name}) จาก ${lot}`);
+    facEditing=null;
+    renderFactory();
+    return;
+  }
+  const entry={id:'fb_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),sold:0,soldDate:'',...snapshot};
+  facBottling.push(entry);
+  facSave();
+  queueSync('bottling',[entry]);
+  facSyncBottling(entry);
+  showToast&&showToast('โรงงาน',`✅ บรรจุ ${facFmt(qty)} ${lk.unit.name} (${lk.product.name}) จาก ${lot}`);
+  renderFactory();
+}
+function facEditBot(id){facEditing={kind:'bot',id};renderFactory();}
+function facDeleteBot(id){
+  const b=facBottling.find(x=>x.id===id);if(!b)return;
+  const label=b.productName?`${b.productName} · ${b.unitName||''}`:`${b.size||0}ml`;
+  if(!confirm(`ลบรายการบรรจุ ${b.lot} · ${label} × ${facFmt(b.qty)} ?`))return;
+  facBottling=facBottling.filter(x=>x.id!==id);
+  // Clean up legacy auto-deduction entry if present (older records had AUTO empty-bottle deductions)
+  const ix=facEmpty.findIndex(e=>e.kind==='ใช้บรรจุ'&&e.date===b.date&&Number(e.size)===Number(b.size)&&Number(e.qty)===-Number(b.qty)&&(e.note||'').indexOf('Lot '+b.lot)>=0);
+  if(ix>=0)facEmpty.splice(ix,1);
+  facSave();
+  facUnlinkBot(b);
+  renderFactory();
+}
+function facSetSold(id,val){
+  const b=facBottling.find(x=>x.id===id);if(!b)return;
+  const v=Math.max(0,Math.min(Number(b.qty||0),Number(val)||0));
+  b.sold=v;b.soldDate=v>0?facToday():'';
+  facSave();
+  facSyncBottling(b);
+  renderFactory();
+}
+function facAddEmpty(){
+  const editing=facEditing&&facEditing.kind==='emp'?facEmpty.find(x=>x.id===facEditing.id):null;
+  const date=document.getElementById('fac-e-date').value||facToday();
+  const productId=document.getElementById('fac-e-prod').value;
+  const unitId=document.getElementById('fac-e-unit').value;
+  if(!productId||!unitId){alert('กรุณาเลือกสินค้าและหน่วย (จากรายการสินค้า)');return;}
+  const lk=plLookup(productId,unitId);
+  if(!lk){alert('ไม่พบสินค้า');return;}
+  const inputQty=Math.abs(+document.getElementById('fac-e-qty').value||0);
+  if(inputQty<=0){alert('กรุณาใส่จำนวน > 0');return;}
+  const baseUnits=Number(lk.unit.baseUnits)||1;
+  const qty=inputQty*baseUnits;
+  const inputPrice=+document.getElementById('fac-e-price').value||Number(lk.unit.totalPrice)||0;
+  const pricePerBase=baseUnits>0?Math.round((inputPrice/baseUnits)*100)/100:inputPrice;
+  const note=document.getElementById('fac-e-note').value||'';
+  const baseUnitName=(lk.product.units[0]||{}).name||'';
+  const snapshot={
+    date,kind:'ซื้อเข้า',
+    productId,unitId,
+    productName:lk.product.name,
+    unitName:lk.unit.name,
+    baseUnitName,
+    size:Number(lk.product.baseMl)||0,
+    qty,price:pricePerBase,note,
+    inputQty,inputPrice
+  };
+  if(editing){
+    Object.assign(editing,{...snapshot,balance:facEmptyBalanceByProduct(productId)-Number(editing.qty||0)+qty});
+    facSave();
+    queueSync('emptyBottle',[editing]);
+    facSyncEmpty(editing);
+    showToast&&showToast('โรงงาน',`✏️ แก้ไขซื้อ ${escHtml(lk.product.name)} × ${facFmt(qty)} ${escHtml(baseUnitName)}`);
+    facEditing=null;
+    renderFactory();
+    return;
+  }
+  const entry={
+    id:'fe_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+    ...snapshot,
+    balance:facEmptyBalanceByProduct(productId)+qty
+  };
+  facEmpty.push(entry);facSave();
+  queueSync('emptyBottle',[entry]);
+  facSyncEmpty(entry);
+  showToast&&showToast('โรงงาน',`✅ ซื้อ ${escHtml(lk.product.name)} × ${facFmt(qty)} ${escHtml(baseUnitName)}`);
+  renderFactory();
+}
+function facDeleteEmp(id){
+  const e=facEmpty.find(x=>x.id===id);if(!e)return;
+  if((e.note||'').indexOf('AUTO')===0){alert('รายการตัดสต๊อกอัตโนมัติ — ลบผ่านการลบรายการบรรจุในแท็บ "บรรจุ"');return;}
+  if(!confirm(`ลบรายการขวดเปล่า ${e.size}ml · ${facFmt(e.qty)} ขวด?`))return;
+  facEmpty=facEmpty.filter(x=>x.id!==id);facSave();
+  facRemoveFin(facFinKey('emp',id));
+  renderFactory();
+}
+
+// ── FACTORY → FINANCE + INVENTORY SYNC ─────────────────────────────
+// Every Lot / Bottling / Empty-bottle record in the factory is mirrored
+// as a finance entry (and for bottling, also as an inventory product) so
+// the two views stay aligned without double-entry by the user.
+function facFinKey(kind,id){return 'fac:'+kind+':'+id;}
+function facSaveFin(){try{saveLS('org_fin',finEntries);scheduleAppStatePush('finance');}catch(_){}}
+function facSaveInv(){try{saveLS('org_products',products);}catch(_){}try{saveLS('org_movements',movements||[]);scheduleAppStatePush('inventory');}catch(_){}}
+function facRefreshUI(){
+  try{updateMetrics&&updateMetrics();}catch(_){}
+  try{updateInvKPI&&updateInvKPI();}catch(_){}
+  try{if(currentApp==='finance')renderFinance&&renderFinance();}catch(_){}
+  try{if(currentApp==='inventory')renderInventory&&renderInventory();}catch(_){}
+  try{renderFacSync&&renderFacSync();}catch(_){}
+}
+function facUpsertFin(entry){
+  if(!Array.isArray(finEntries))finEntries=[];
+  const i=finEntries.findIndex(e=>e&&e.facKey===entry.facKey);
+  if(i>=0)finEntries[i]={...finEntries[i],...entry};
+  else finEntries.unshift(entry);
+  finEntries.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  facSaveFin();facRefreshUI();
+}
+function facRemoveFin(facKey){
+  if(!Array.isArray(finEntries))return;
+  const before=finEntries.length;
+  finEntries=finEntries.filter(e=>!e||e.facKey!==facKey);
+  if(finEntries.length!==before){facSaveFin();facRefreshUI();}
+}
+function facSyncLot(lot){
+  if(!lot||!lot.id)return;
+  const cost=Number(lot.cost||0);
+  const materials=[
+    {k:'sugar',  name:'น้ำตาล',         unit:'กก'},
+    {k:'salt',   name:'เกลือ',          unit:'กก'},
+    {k:'citric', name:'กรดมะนาว',      unit:'กก'},
+    {k:'pectin', name:'แพคติน',        unit:'กก'},
+    {k:'color',  name:'สี',              unit:'g/ml'},
+    {k:'milk',   name:'นมคาเนชั่น',   unit:'กระป๋อง'},
+    {k:'orangeA',name:'ส้มสายน้ำผึ้ง',unit:'กก'},
+    {k:'orangeB',name:'ส้มเขียวหวาน',unit:'กก'},
+    {k:'ice',    name:'น้ำแข็งหลอด',  unit:'กก'},
+  ];
+  const items=[];
+  materials.forEach(m=>{
+    const q=Number(lot[m.k]||0);
+    if(q>0)items.push({name:m.name,category:'raw',qty:q,unit:m.unit,price:0,total:0});
+  });
+  if(cost>0){
+    if(items.length){
+      const totalQty=items.reduce((s,it)=>s+Number(it.qty||0),0)||1;
+      items.forEach(it=>{
+        const share=Math.round((cost*(Number(it.qty||0)/totalQty))*100)/100;
+        it.total=share;
+        it.price=it.qty>0?Math.round((share/Number(it.qty))*100)/100:0;
+      });
+    } else {
+      items.push({name:'ต้นทุนผลิต Lot '+(lot.lot||''),category:'raw',qty:1,unit:'ครั้ง',price:cost,total:cost});
+    }
+  }
+  const expTotal=items.reduce((s,it)=>s+Number(it.total||0),0);
+  if(!items.length&&!expTotal){facRemoveFin(facFinKey('lot',lot.id));return;}
+  facUpsertFin({
+    id:'facl_'+lot.id,
+    facKey:facFinKey('lot',lot.id),
+    date:lot.date||facToday(),
+    lot:lot.lot||'',
+    expItems:items,incItems:[],
+    expTotal,incTotal:0,net:-expTotal,
+    note:'🏭 ผลิต '+(lot.lot||'')+(lot.note?' — '+lot.note:''),
+  });
+}
+function facSyncEmpty(emp){
+  if(!emp||!emp.id)return;
+  const qty=Number(emp.qty||0);
+  const price=Number(emp.price||0);
+  if(emp.kind!=='ซื้อเข้า'||qty<=0||price<=0){facRemoveFin(facFinKey('emp',emp.id));return;}
+  const total=qty*price;
+  const baseName=emp.baseUnitName||'ชิ้น';
+  const productLabel=emp.productName?emp.productName:('ขวดเปล่า '+(emp.size||0)+' ml');
+  facUpsertFin({
+    id:'face_'+emp.id,
+    facKey:facFinKey('emp',emp.id),
+    date:emp.date||facToday(),
+    expItems:[{name:productLabel,category:'bottle',qty,unit:baseName,price,total}],
+    incItems:[],
+    expTotal:total,incTotal:0,net:-total,
+    note:'🏭 ซื้อ '+productLabel+(emp.note?' — '+emp.note:''),
+  });
+}
+function facSyncBottlingInventory(bot){
+  if(!Array.isArray(products))products=[];
+  // Group all bottling rows by productId+unitId so dashboard mirrors the FG view
+  const productId=bot&&bot.productId?bot.productId:null;
+  const unitId=bot&&bot.unitId?bot.unitId:null;
+  if(!productId||!unitId){
+    // Legacy size-keyed sync (preserved for any old records that still have only `size`)
+    const sz=Number(bot&&bot.size)||0;
+    if(!sz)return;
+    const prodId='fac_bot_'+sz;
+    let p=products.find(x=>x&&x.id===prodId);
+    const onHand=(facBottling||[]).filter(b=>!b.productId&&Number(b.size)===sz).reduce((s,b)=>s+(Number(b.qty||0)-Number(b.sold||0)),0);
+    const anyPrice=(facBottling||[]).filter(b=>!b.productId&&Number(b.size)===sz&&Number(b.price||0)>0).slice(-1)[0];
+    if(!p){if(onHand<=0&&!anyPrice)return;clearDeletedProduct(prodId);p={id:prodId,category:'product',name:'น้ำส้มบรรจุ '+sz+' ml',unit:'ขวด',price:anyPrice?Number(anyPrice.price):0,cost:0,reorder:0,stock:onHand,facSource:true,updatedAt:Date.now()};products.push(p);}
+    else {p.stock=onHand;p.updatedAt=Date.now();if(anyPrice)p.price=Number(anyPrice.price);p.facSource=true;p.category=p.category||'product';}
+    facSaveInv();return;
+  }
+  const lk=plLookup(productId,unitId);
+  const baseName=lk?((lk.product.units[0]||{}).name||'ชิ้น'):(bot.unitName||'หน่วย');
+  const prodId='fac_bot_'+productId+'_'+unitId;
+  let p=products.find(x=>x&&x.id===prodId);
+  const onHand=(facBottling||[]).filter(b=>b.productId===productId&&b.unitId===unitId).reduce((s,b)=>s+(Number(b.qty||0)-Number(b.sold||0)),0);
+  const anyPrice=(facBottling||[]).filter(b=>b.productId===productId&&b.unitId===unitId&&Number(b.price||0)>0).slice(-1)[0];
+  const dispName=(lk?lk.product.name:bot.productName||'')+' · '+(lk?lk.unit.name:bot.unitName||'');
+  if(!p){
+    if(onHand<=0&&!anyPrice)return;
+    clearDeletedProduct(prodId);
+    p={id:prodId,category:'product',name:dispName,unit:lk?lk.unit.name:(bot.unitName||baseName),price:anyPrice?Number(anyPrice.price):0,cost:0,reorder:0,stock:onHand,facSource:true,updatedAt:Date.now()};
+    products.push(p);
+  } else {
+    p.stock=onHand;p.updatedAt=Date.now();p.name=dispName;if(anyPrice)p.price=Number(anyPrice.price);p.facSource=true;p.category=p.category||'product';
+  }
+  facSaveInv();
+}
+function facSyncBottling(bot){
+  if(!bot||!bot.id)return;
+  // Sale-draw rows only exist to debit Lot ml — they are not bottling production
+  // and should never produce inventory movements or finance entries.
+  if(bot.kind==='sale-draw')return;
+  facSyncBottlingInventory(bot);
+  const sold=Number(bot.sold||0);
+  const price=Number(bot.price||0);
+  const key=facFinKey('bot',bot.id);
+  if(sold>0&&price>0){
+    const total=sold*price;
+    const label=bot.productName?(bot.productName+' · '+(bot.unitName||'')):'น้ำส้มบรรจุ '+(bot.size||0)+' ml';
+    facUpsertFin({
+      id:'facb_'+bot.id,
+      facKey:key,
+      date:bot.soldDate||bot.date||facToday(),
+      lot:bot.lot||'',
+      expItems:[],
+      incItems:[{name:label,category:'product',qty:sold,unit:bot.unitName||'หน่วย',price,total}],
+      expTotal:0,incTotal:total,net:total,
+      note:'🏭 ขาย Lot '+(bot.lot||'')+(bot.note?' — '+bot.note:''),
+    });
+  } else {
+    facRemoveFin(key);
+    facRefreshUI();
+  }
+}
+function facUnlinkBot(bot){
+  if(!bot)return;
+  facRemoveFin(facFinKey('bot',bot.id));
+  facSyncBottlingInventory(bot);
+  facRefreshUI();
+}
+async function facResyncAll(){
+  if(typeof requireAdmin==='function'){
+    const ok=await requireAdmin('ล้างและซิงค์ทั้งหมดจากโรงงาน');
+    if(!ok)return;
+  }
+  if(!confirm('ล้างรายรับ-รายจ่าย + คลังสินค้า (ของเก่าที่ไม่ได้มาจากโรงงาน) แล้วสร้างใหม่ทั้งหมดจากโรงงานน้ำส้ม?\nการกระทำนี้ไม่สามารถย้อนกลับได้'))return;
+  finEntries=(finEntries||[]).filter(e=>e&&typeof e.facKey==='string'&&e.facKey.indexOf('fac:')===0);
+  products=(products||[]).filter(p=>p&&p.facSource);
+  movements=[];
+  facSaveFin();facSaveInv();
+  (facLots||[]).forEach(l=>facSyncLot(l));
+  (facEmpty||[]).forEach(e=>facSyncEmpty(e));
+  // rebuild bottling inventory once per record (per-product or legacy size)
+  (facBottling||[]).forEach(b=>facSyncBottling(b));
+  facRefreshUI();
+  showToast&&showToast('ซิงค์โรงงาน','✅ ล้างและซิงค์ใหม่จากโรงงานเรียบร้อย');
+}
+function renderFacSync(){
+  const el=document.getElementById('facsync-status');
+  if(!el)return;
+  const lotCount=(facLots||[]).length;
+  const botCount=(facBottling||[]).length;
+  const empCount=(facEmpty||[]).filter(e=>e.kind==='ซื้อเข้า').length;
+  const finFac=(finEntries||[]).filter(e=>e&&(e.facKey||'').indexOf('fac:')===0).length;
+  const finOld=(finEntries||[]).length-finFac;
+  const prodFac=(products||[]).filter(p=>p&&p.facSource).length;
+  const prodOld=(products||[]).length-prodFac;
+  el.innerHTML=`<div style="font-size:12px;line-height:1.8;color:var(--text)">
+    🏭 <b>แหล่งข้อมูลโรงงาน:</b> ${lotCount} Lot · ${botCount} รายการบรรจุ · ${empCount} ซื้อขวดเข้า<br/>
+    💰 <b>รายรับ-รายจ่าย:</b> จากโรงงาน <b style="color:var(--inc-label)">${finFac}</b> · ของเก่า <b style="color:${finOld?'#b91c1c':'var(--muted)'}">${finOld}</b><br/>
+    📦 <b>คลังสินค้า:</b> จากโรงงาน <b style="color:var(--inc-label)">${prodFac}</b> · ของเก่า <b style="color:${prodOld?'#b91c1c':'var(--muted)'}">${prodOld}</b>
+  </div>`;
+}
+
+// FINANCE (รายรับ-รายจ่าย / P&L) PAGE
+// finEntries is populated automatically by facSyncLot / facSyncBottling /
+// facSyncEmpty whenever the factory records an event, and additionally by
+// manual rows added through finOpenManual(). Each entry has:
+//   { id, date, expItems[], incItems[], expTotal, incTotal, net, note,
+//     facKey?  (present when the row was auto-generated from the factory),
+//     manual?  (present when the row was added by hand),
+//     category (for manual rows only) }
+// The P&L page aggregates these into KPIs, category / bottle-size / Lot
+// breakdowns, and a transaction list, then queues each change for Google
+// Sheets under the "finance" type so the spreadsheet side stays in sync.
+let finPeriod=localStorage.getItem('org_fin_period')||'month';
+const FIN_EXP_CATS=['ค่าวัตถุดิบ','ค่าขวดเปล่า','ค่าแรง','ค่าไฟฟ้า','ค่าน้ำ','ค่าเช่า','ค่าขนส่ง','ค่าการตลาด','ค่าอุปกรณ์','อื่นๆ'];
+const FIN_INC_CATS=['ขายน้ำส้ม','รายรับอื่นๆ'];
+function finFmt(n){return Number(n||0).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:2});}
+function finSwitchPeriod(p){
+  finPeriod=p;localStorage.setItem('org_fin_period',p);
+  switchTabStyle('.fintab',b=>b.dataset.period===p,'#0e7c3a');
+  renderFinance();
+}
+function finInPeriod(dateStr){
+  if(finPeriod==='all')return true;
+  if(!dateStr)return false;
+  const d=String(dateStr).slice(0,10);
+  const today=facToday();
+  if(finPeriod==='today')return d===today;
+  if(finPeriod==='month')return d.slice(0,7)===today.slice(0,7);
+  if(finPeriod==='year')return d.slice(0,4)===today.slice(0,4);
+  return true;
+}
+function finEntrySource(e){
+  if(!e)return 'manual';
+  if(e.facKey){
+    if(e.facKey.indexOf('fac:lot:')===0)return 'lot';
+    if(e.facKey.indexOf('fac:bot:')===0)return 'bot';
+    if(e.facKey.indexOf('fac:emp:')===0)return 'emp';
+    return 'fac';
+  }
+  return 'manual';
+}
+function finEntryLot(e){
+  if(!e)return '';
+  if(e.lot)return e.lot;
+  if(!e.facKey)return '';
+  // lot-sourced entries reference the facLots row by id via facKey=fac:lot:<id>
+  const id=e.facKey.split(':').slice(2).join(':');
+  if(e.facKey.indexOf('fac:lot:')===0){const l=(facLots||[]).find(x=>x.id===id);return l?l.lot:'';}
+  if(e.facKey.indexOf('fac:bot:')===0){const b=(facBottling||[]).find(x=>x.id===id);return b?b.lot:'';}
+  return '';
+}
+function finEntryCategory(e){
+  if(!e)return '';
+  if(e.category)return e.category;
+  const src=finEntrySource(e);
+  if(src==='lot')return 'ค่าวัตถุดิบ';
+  if(src==='emp')return 'ค่าขวดเปล่า';
+  if(src==='bot')return 'ขายน้ำส้ม';
+  if((e.incItems||[]).length)return 'รายรับอื่นๆ';
+  if((e.expItems||[]).length)return (e.expItems[0].category||'อื่นๆ');
+  return 'อื่นๆ';
+}
+function finBottleSizeOf(e){
+  // Sales are tagged via the facKey pointing back to a bottling row (which has size)
+  if(e&&e.facKey&&e.facKey.indexOf('fac:bot:')===0){
+    const id=e.facKey.split(':').slice(2).join(':');
+    const b=(facBottling||[]).find(x=>x.id===id);
+    if(b)return Number(b.size)||0;
+  }
+  // Or read from incItems name "น้ำส้มบรรจุ 500 ml"
+  const it=(e&&e.incItems||[])[0];
+  if(it&&it.name){const m=String(it.name).match(/(\d+)\s*ml/i);if(m)return Number(m[1]);}
+  return 0;
+}
+function renderFinance(){
+  const body=document.getElementById('fin-body');
+  if(!body)return;
+  const entries=(finEntries||[]).filter(e=>e&&finInPeriod(e.date));
+  const incTotal=entries.reduce((s,e)=>s+Number(e.incTotal||0),0);
+  const expTotal=entries.reduce((s,e)=>s+Number(e.expTotal||0),0);
+  const net=incTotal-expTotal;
+  const margin=incTotal>0?(net/incTotal*100):0;
+
+  // Breakdown by category (รายจ่าย) and (รายรับ)
+  const expByCat={},incByCat={};
+  entries.forEach(e=>{
+    const cat=finEntryCategory(e);
+    if(Number(e.incTotal||0)>0)incByCat[cat]=(incByCat[cat]||0)+Number(e.incTotal||0);
+    if(Number(e.expTotal||0)>0)expByCat[cat]=(expByCat[cat]||0)+Number(e.expTotal||0);
+  });
+  const expCatRows=Object.entries(expByCat).sort((a,b)=>b[1]-a[1]);
+  const incCatRows=Object.entries(incByCat).sort((a,b)=>b[1]-a[1]);
+
+  // Breakdown by bottle size (sales only)
+  const bySize={};
+  entries.filter(e=>finEntrySource(e)==='bot').forEach(e=>{
+    const sz=finBottleSizeOf(e)||0;
+    if(!bySize[sz])bySize[sz]={sz,qty:0,amount:0};
+    bySize[sz].qty+=(e.incItems||[]).reduce((s,i)=>s+Number(i.qty||0),0);
+    bySize[sz].amount+=Number(e.incTotal||0);
+  });
+  const sizeRows=Object.values(bySize).sort((a,b)=>a.sz-b.sz);
+
+  // Breakdown by Lot (cost + revenue + net)
+  const byLot={};
+  entries.forEach(e=>{
+    const lot=finEntryLot(e);if(!lot)return;
+    if(!byLot[lot])byLot[lot]={lot,cost:0,rev:0};
+    byLot[lot].cost+=Number(e.expTotal||0);
+    byLot[lot].rev+=Number(e.incTotal||0);
+  });
+  const lotRows=Object.values(byLot).sort((a,b)=>String(b.lot).localeCompare(String(a.lot)));
+
+  const barPct=v=>{const max=Math.max(...expCatRows.map(r=>r[1]),...incCatRows.map(r=>r[1]),1);return Math.round(v/max*100);};
+
+  // Credit (เบิก 3 วัน) supplementary totals — never counted in รายรับ จนกว่าจะชำระจริง
+  let pendCount=0,pendTotal=0,overCount=0,overTotal=0;
+  (rooms||[]).forEach(r=>{
+    (r.sales||[]).forEach(s=>{
+      const st=wdStatus(s);
+      if(st==='pending'){pendCount++;pendTotal+=Number(s.total)||0;}
+      else if(st==='overdue'){overCount++;overTotal+=Number(s.total)||0;}
+    });
+  });
+  const creditHtml=(pendCount||overCount)?`
+    <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;font-size:11px">
+      <span style="background:#fef9c3;color:#854d0e;border:1px solid #fde68a;border-radius:8px;padding:4px 9px">🟡 ยอดรอชำระ ${pendCount} รายการ · <b>${finFmt(pendTotal)}</b> บาท</span>
+      <span style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;border-radius:8px;padding:4px 9px">🔴 ยอดเกินกำหนด ${overCount} รายการ · <b>${finFmt(overTotal)}</b> บาท</span>
+      <span style="color:var(--muted);align-self:center">(ข้อมูลประกอบ — ยังไม่นับเป็นรายรับจนกว่าจะกดชำระ)</span>
+    </div>`:'';
+
+  const kpiHtml=`
+    <div class="fac-card">
+      <div class="fac-title">📊 สรุป${finPeriod==='today'?'วันนี้':finPeriod==='month'?'เดือนนี้':finPeriod==='year'?'ปีนี้':'ทั้งหมด'}</div>
+      <div class="fac-kpi" style="grid-template-columns:repeat(4,1fr)">
+        <div class="k" style="background:linear-gradient(135deg,#eafff1,#fff);border-color:#b7edc8"><div class="kl">รายรับ</div><div class="kv" style="color:#0e7c3a">${finFmt(incTotal)}</div><div class="ks">บาท</div></div>
+        <div class="k" style="background:linear-gradient(135deg,#ffecec,#fff);border-color:#f5b8b8"><div class="kl">รายจ่าย</div><div class="kv" style="color:#b91c1c">${finFmt(expTotal)}</div><div class="ks">บาท</div></div>
+        <div class="k" style="background:linear-gradient(135deg,${net>=0?'#eafff1':'#ffecec'},#fff);border-color:${net>=0?'#b7edc8':'#f5b8b8'}"><div class="kl">กำไรสุทธิ</div><div class="kv" style="color:${net>=0?'#0e7c3a':'#b91c1c'}">${finFmt(net)}</div><div class="ks">บาท</div></div>
+        <div class="k"><div class="kl">อัตรากำไร</div><div class="kv" style="color:${margin>=0?'#0e7c3a':'#b91c1c'}">${margin.toFixed(1)}%</div><div class="ks">Margin</div></div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px">รายการทั้งหมด ${entries.length} รายการ · ซิงค์จากโรงงาน ${entries.filter(e=>e.facKey).length} · บันทึกเอง ${entries.filter(e=>!e.facKey).length}</div>
+      ${creditHtml}
+    </div>`;
+
+  const catHtml=`
+    <div class="fac-card">
+      <div class="fac-title">🥧 แยกตามหมวด</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#0e7c3a;margin-bottom:6px">รายรับ</div>
+          ${incCatRows.length?incCatRows.map(([c,v])=>`
+            <div style="font-size:12px;margin-bottom:6px">
+              <div style="display:flex;justify-content:space-between"><span>${c}</span><b>${finFmt(v)}</b></div>
+              <div style="background:#eef2f6;height:6px;border-radius:3px;margin-top:3px;overflow:hidden"><div style="background:#38c97a;height:100%;width:${barPct(v)}%"></div></div>
+            </div>`).join(''):'<div style="font-size:11px;color:var(--muted)">—</div>'}
+        </div>
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#b91c1c;margin-bottom:6px">รายจ่าย</div>
+          ${expCatRows.length?expCatRows.map(([c,v])=>`
+            <div style="font-size:12px;margin-bottom:6px">
+              <div style="display:flex;justify-content:space-between"><span>${c}</span><b>${finFmt(v)}</b></div>
+              <div style="background:#eef2f6;height:6px;border-radius:3px;margin-top:3px;overflow:hidden"><div style="background:#e25c5c;height:100%;width:${barPct(v)}%"></div></div>
+            </div>`).join(''):'<div style="font-size:11px;color:var(--muted)">—</div>'}
+        </div>
+      </div>
+    </div>`;
+
+  const sizeHtml=`
+    <div class="fac-card">
+      <div class="fac-title">🍶 ยอดขายแยกตามขนาดขวด</div>
+      <table class="fac-tbl">
+        <thead><tr><th>ขนาด</th><th>จำนวนขวด</th><th>ยอดขาย (บาท)</th><th>ราคา/ขวด (เฉลี่ย)</th></tr></thead>
+        <tbody>${sizeRows.length?sizeRows.map(r=>`<tr><td>${r.sz} ml</td><td>${finFmt(r.qty)}</td><td><b style="color:#0e7c3a">${finFmt(r.amount)}</b></td><td>${r.qty>0?finFmt(r.amount/r.qty):'—'}</td></tr>`).join(''):`<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:14px">ยังไม่มียอดขายในช่วงนี้</td></tr>`}</tbody>
+      </table>
+    </div>`;
+
+  const lotHtml=`
+    <div class="fac-card">
+      <div class="fac-title">🍊 กำไร/ต้นทุนแยกตาม Lot</div>
+      <table class="fac-tbl">
+        <thead><tr><th>Lot</th><th>ต้นทุน</th><th>รายรับ</th><th>กำไร</th></tr></thead>
+        <tbody>${lotRows.length?lotRows.map(r=>{const n=r.rev-r.cost;return `<tr><td>${r.lot}</td><td style="color:#b91c1c">${finFmt(r.cost)}</td><td style="color:#0e7c3a">${finFmt(r.rev)}</td><td><b style="color:${n>=0?'#0e7c3a':'#b91c1c'}">${finFmt(n)}</b></td></tr>`;}).join(''):`<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:14px">ยังไม่มีข้อมูล Lot</td></tr>`}</tbody>
+      </table>
+    </div>`;
+
+  const srcPill=e=>{
+    const s=finEntrySource(e);
+    if(s==='lot')return `<span class="fac-pill warn" title="จากชีตการผลิต">🏭 ผลิต</span>`;
+    if(s==='bot')return `<span class="fac-pill ok" title="จากชีตบรรจุ/จำหน่าย">📦 ขาย</span>`;
+    if(s==='emp')return `<span class="fac-pill done" title="จากชีตขวดเปล่า">🍶 ขวด</span>`;
+    return `<span class="fac-pill" style="background:#eef2f6;color:#334155">✋ เอง</span>`;
+  };
+  const rows=entries.slice(0,200).map(e=>{
+    const amt=e.incTotal>0?`<b style="color:#0e7c3a">+${finFmt(e.incTotal)}</b>`:`<b style="color:#b91c1c">−${finFmt(e.expTotal)}</b>`;
+    const delBtn=e.manual?`<button class="fac-del" onclick="finDeleteManual('${e.id}')" title="ลบ">×</button>`:'';
+    const lot=finEntryLot(e);
+    return `<tr>
+      <td style="white-space:nowrap">${e.date||''}</td>
+      <td>${srcPill(e)}</td>
+      <td>${finEntryCategory(e)}${lot?` · <span style="color:var(--muted)">${lot}</span>`:''}</td>
+      <td style="font-size:11.5px;color:var(--muted)">${(e.note||'').replace(/</g,'&lt;')}</td>
+      <td style="text-align:right">${amt}</td>
+      <td>${delBtn}</td>
+    </tr>`;
+  }).join('')||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px">ยังไม่มีรายการในช่วงนี้ — กด ＋ เพื่อบันทึกเอง หรือบันทึกข้อมูลในโรงงานเพื่อให้ซิงค์อัตโนมัติ</td></tr>`;
+  const listHtml=`
+    <div class="fac-card">
+      <div class="fac-title" style="display:flex;align-items:center;justify-content:space-between">
+        <span>📝 รายการทั้งหมด</span>
+        <button class="fac-btn" style="background:#0e7c3a;margin:0;padding:6px 12px;font-size:12px" onclick="finOpenManual()">＋ บันทึกเอง</button>
+      </div>
+      <table class="fac-tbl">
+        <thead><tr><th>วันที่</th><th>ที่มา</th><th>หมวด / Lot</th><th>รายละเอียด</th><th style="text-align:right">จำนวน</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  body.innerHTML=kpiHtml+catHtml+sizeHtml+lotHtml+listHtml;
+}
+
+function finOpenManual(){
+  document.getElementById('fin-m-date').value=facToday();
+  document.getElementById('fin-m-desc').value='';
+  document.getElementById('fin-m-amount').value='';
+  document.getElementById('fin-m-note').value='';
+  document.getElementById('fin-m-type').value='exp';
+  // populate Lot dropdown
+  const lotSel=document.getElementById('fin-m-lot');
+  lotSel.innerHTML='<option value="">—</option>'+(facLots||[]).slice().reverse().map(l=>`<option value="${l.lot}">${l.lot}</option>`).join('');
+  finManualSyncCats();
+  document.getElementById('ov-fin-manual').classList.add('open');
+}
+function finCloseManual(){document.getElementById('ov-fin-manual').classList.remove('open');}
+function finManualSyncCats(){
+  const t=document.getElementById('fin-m-type').value;
+  const sel=document.getElementById('fin-m-cat');
+  const cats=t==='inc'?FIN_INC_CATS:FIN_EXP_CATS;
+  sel.innerHTML=cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+}
+function finSaveManual(){
+  const type=document.getElementById('fin-m-type').value;
+  const date=document.getElementById('fin-m-date').value||facToday();
+  const cat=document.getElementById('fin-m-cat').value||'อื่นๆ';
+  const desc=(document.getElementById('fin-m-desc').value||'').trim();
+  const amount=Number(document.getElementById('fin-m-amount').value||0);
+  const lot=document.getElementById('fin-m-lot').value||'';
+  const note=(document.getElementById('fin-m-note').value||'').trim();
+  if(!(amount>0)){alert('กรุณาใส่จำนวนเงิน > 0');return;}
+  if(!desc){alert('กรุณาใส่รายละเอียด');return;}
+  const id='finm_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+  const item={name:desc,category:cat,qty:1,unit:'รายการ',price:amount,total:amount};
+  const entry={
+    id,date,manual:true,category:cat,lot,
+    expItems:type==='exp'?[item]:[],
+    incItems:type==='inc'?[item]:[],
+    expTotal:type==='exp'?amount:0,
+    incTotal:type==='inc'?amount:0,
+    net:type==='inc'?amount:-amount,
+    note:(lot?('Lot '+lot+(note?' — ':'')):'')+note,
+  };
+  if(!Array.isArray(finEntries))finEntries=[];
+  finEntries.unshift(entry);
+  finEntries.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  facSaveFin();
+  queueSync('finance',[entry]);
+  queueSync('daily',[entry]);
+  finCloseManual();
+  renderFinance();
+  showToast&&showToast('รายรับ-รายจ่าย','✅ บันทึก '+(type==='inc'?'รายรับ':'รายจ่าย')+' '+finFmt(amount)+' บาท');
+}
+function finDeleteManual(id){
+  const e=(finEntries||[]).find(x=>x&&x.id===id&&x.manual);
+  if(!e)return;
+  if(!confirm('ลบรายการนี้?'))return;
+  finEntries=finEntries.filter(x=>x!==e);
+  facSaveFin();
+  queueSync('finance',[{...e,_deleted:true}]);
+  renderFinance();
+}
+
+// Mirror every factory-originated finance change to Google Sheets (finance sheet).
+// We wrap facUpsertFin and facRemoveFin so sheet sync happens in one place for
+// both auto-sync (factory) and the manual entry path.
+(function(){
+  const _upsert=facUpsertFin,_remove=facRemoveFin;
+  facUpsertFin=function(entry){_upsert(entry);try{queueSync('finance',[entry]);}catch(_){}};
+  facRemoveFin=function(key){
+    const victim=(finEntries||[]).find(e=>e&&e.facKey===key);
+    _remove(key);
+    if(victim)try{queueSync('finance',[{...victim,_deleted:true}]);}catch(_){}
+  };
+})();
+
+// NOTIFICATIONS
+function toggleNotify(){
+  if(!notifyOn){
+    if(!('Notification' in window)){showToast('แจ้งเตือน','เบราว์เซอร์นี้ไม่รองรับ');return;}
+    Notification.requestPermission().then(p=>{
+      if(p==='granted'){notifyOn=true;localStorage.setItem('org_notify','true');updateNotifyUI();showToast('แจ้งเตือน','เปิดแจ้งเตือนแล้ว 🔔');}
+      else showToast('แจ้งเตือน','กรุณากด "อนุญาต"');
+    });
+  }else{notifyOn=false;localStorage.setItem('org_notify','false');updateNotifyUI();}
+}
+function updateNotifyUI(){
+  document.getElementById('notifysw').className='sw'+(notifyOn?' on':'');
+  const dot=document.getElementById('sdot'),txt=document.getElementById('stxt');
+  if(notifyOn){dot.className='sdot on';txt.textContent='แจ้งเตือน: เปิด 🔔';}
+  else{dot.className='sdot';txt.textContent='แจ้งเตือน: ปิด';}
+}
+function pushNotify(title,body){
+  if(notifyOn&&Notification.permission==='granted'){
+    const n=new Notification(title,{body});setTimeout(()=>n.close(),6000);
+  }
+}
+
+// FIREBASE
+async function connectFB(){
+  document.getElementById('connbar').classList.add('show');
+  try{
+    await fbSet('_ping',{ts:Date.now()});
+    fbOn=true;
+    document.getElementById('connbar').classList.remove('show');
+    document.getElementById('fbstat').textContent='🟢 Firebase เชื่อมต่อแล้ว';
+    showToast('Firebase','เชื่อมต่อสำเร็จ! แชทหลายคนพร้อมแล้ว');
+    await syncRoomsFromFB();
+    await fbSyncRegUsers();
+    startFirebaseRealtime();
+    renderAdminConnect();
+  }catch(e){
+    document.getElementById('connbar').classList.remove('show');
+    document.getElementById('fbstat').textContent='🔴 ใช้โหมดออฟไลน์';
+    fbOn=false;fbRealtimeOn=false;stopFirebaseRealtime();renderAdminConnect();
+  }
+}
+async function fbGet(p){const r=await fetch(fbUrl+'/'+p+'.json');if(!r.ok)throw new Error(r.status);return r.json();}
+async function fbSet(p,d){await fetch(fbUrl+'/'+p+'.json',{method:'PUT',body:JSON.stringify(d)});}
+async function fbPush(p,d){const r=await fetch(fbUrl+'/'+p+'.json',{method:'POST',body:JSON.stringify(d)});return r.json();}
+async function fbPatch(p,d){await fetch(fbUrl+'/'+p+'.json',{method:'PATCH',body:JSON.stringify(d)});}
+function stopFirebaseRealtime(){
+  (fbStreams||[]).forEach(s=>{try{s.close();}catch(e){}});
+  fbStreams=[];fbRealtimeOn=false;
+}
+function fbSchedule(path,fn){
+  clearTimeout(fbRefreshTimers[path]);
+  fbRefreshTimers[path]=setTimeout(fn,350);
+}
+function fbListen(path,fn){
+  if(!window.EventSource||!fbUrl)return null;
+  const es=new EventSource(fbUrl+'/'+path+'.json');
+  const onChange=()=>fbSchedule(path,fn);
+  es.addEventListener('put',onChange);
+  es.addEventListener('patch',onChange);
+  es.onopen=()=>{fbRealtimeOn=true;renderAdminConnect();};
+  es.onerror=()=>{fbRealtimeOn=false;renderAdminConnect();};
+  fbStreams.push(es);
+  return es;
+}
+function startFirebaseRealtime(){
+  stopFirebaseRealtime();
+  fbListen('rooms',()=>syncRoomsFromFB());
+  fbListen('regUsers',()=>fbLoadRegUsers());
+  fbListen('regDeleted',()=>fbLoadRegUsers());
+}
+async function fbSaveRegUsers(){
+  if(!fbOn||fbApplying)return;
+  try{
+    await fbSet('regUsers',regUsersToFB());
+    await fbSet('regDeleted',fbRegDeleted||{});
+  }catch(e){}
+}
+async function fbSyncRegUsers(){
+  try{
+    const remote=await fbGet('regUsers')||{};
+    const remoteDeleted=await fbGet('regDeleted')||{};
+    fbRegDeleted={...(fbRegDeleted||{}),...(remoteDeleted||{})};
+    saveRegDeleted();
+    const merged={};
+    (regUsers||[]).forEach(u=>{if(u&&u.id4&&!fbRegDeleted[u.id4])merged[u.id4]=u;});
+    Object.entries(remote||{}).forEach(([id,u])=>{if(u&&!fbRegDeleted[id])merged[id]={...u,id4:u.id4||id};});
+    fbApplying=true;
+    regUsers=Object.values(merged);
+    saveLS('org_reg_users',regUsers);
+    fbApplying=false;
+    await fbSaveRegUsers();
+    renderRegPending();renderIdList();
+  }catch(e){fbApplying=false;}
+}
+async function fbLoadRegUsers(){
+  if(fbApplying)return;
+  try{
+    const remote=await fbGet('regUsers')||{};
+    const remoteDeleted=await fbGet('regDeleted')||{};
+    fbApplying=true;
+    fbRegDeleted={...(remoteDeleted||{})};
+    saveRegDeleted();
+    regUsers=Object.entries(remote||{}).filter(([id])=>!fbRegDeleted[id]).map(([id,u])=>({...u,id4:u.id4||id}));
+    saveLS('org_reg_users',regUsers);
+    fbApplying=false;
+    if(currentApp==='admin'){renderRegPending();renderIdList();}
+    updateProfileUI();
+  }catch(e){fbApplying=false;}
+}
+async function syncRoomsFromFB(){
+  try{
+    const fbr=await fbGet('rooms');
+    const deleted=loadDeletedRoomIds();
+    let changed=false;
+    if(fbr){
+      Object.entries(fbr).forEach(([id,r])=>{
+        if(id==='_ping'||!r)return;
+        if(deleted.has(id)){fbSet('rooms/'+id,null).catch(()=>{});return;}
+        const incoming={
+          id,
+          name:r.name||'ห้องขาย',
+          icon:r.icon||LEVEL_ICONS[r.level||4]||'🛒',
+          color:r.color||LEVEL_COLORS[r.level||4]||COLORS[0],
+          parentId:r.parentId||'',
+          level:Number(r.level)||((r.isCategory||r.parentId)?Number(r.level)||1:4),
+          isCategory:!!r.isCategory,
+          customer:r.customer||{},
+          sales:[],
+          msgs:[],
+          unread:0
+        };
+        const local=rooms.find(x=>x.id===id);
+        if(!local){rooms.push(incoming);changed=true;return;}
+        ['name','icon','color','parentId','level','isCategory','customer'].forEach(k=>{
+          if(local[k]==null||local[k]===''||(k==='customer'&&!local.customer)){
+            local[k]=incoming[k];
+            changed=true;
+          }
+        });
+      });
+    }
+    if(normalizeRooms())changed=true;
+    if(changed){saveRooms();renderRooms();}
+    const patch={};
+    rooms.forEach(r=>{
+      if(deleted.has(r.id))return;
+      patch[r.id]={
+        name:r.name,
+        icon:r.icon,
+        color:r.color,
+        parentId:r.parentId||null,
+        level:roomLevel(r),
+        isCategory:!!r.isCategory,
+        customer:r.customer||null
+      };
+    });
+    await fbPatch('rooms',patch);
+  }catch(e){}
+}
+// (Removed) startPoll / stopPoll — the per-room Firebase chat poller was never wired up
+// from any callsite, so a 3-second background fetch loop existed only as dead code.
+
+// SALES ROOMS — 4-level hierarchical tree
+//   L1: ประเภทกลุ่มลูกค้า  →  L2: กลุ่มลูกค้าย่อย  →  L3: ร้านลูกค้า  →  L4: ลูกค้า (ห้องขายจริง)
+const LEVEL_LABELS={1:'หมวดหมู่',2:'ห้องประชุม',3:'ห้องขายหลัก',4:'ห้องขายย่อย'};
+const LEVEL_ICONS={1:'🗂️',2:'👥',3:'🏪',4:'🧑'};
+const LEVEL_COLORS={1:'#6366f1',2:'#f97316',3:'#06b6d4',4:'#4f8ef7'};
+const ROOM_PURPOSE_KEY='org_room_level_purposes';
+const ROOM_PURPOSE_DEFAULT={1:'group',2:'meeting',3:'sale',4:'sale'};
+const ROOM_PURPOSE_META={
+  group:{label:'หมวดหมู่',hint:'ใช้จัดกลุ่มและแตกชั้นย่อย',icon:'🗂️'},
+  meeting:{label:'ห้องประชุม',hint:'ใช้คุยงานและดูฟีดยอดขายของชั้นย่อย',icon:'👥'},
+  sale:{label:'ห้องขาย',hint:'บันทึกยอดขาย ค่าใช้จ่าย และข้อมูลลูกค้า',icon:'🛒'}
+};
+let roomLevelPurposes={...ROOM_PURPOSE_DEFAULT};
+function applyRoomPurposeLabels(){
+  for(let lv=1;lv<=4;lv++){
+    const purpose=roomLevelPurposes[lv]||ROOM_PURPOSE_DEFAULT[lv]||'group';
+    const meta=ROOM_PURPOSE_META[purpose]||ROOM_PURPOSE_META.group;
+    LEVEL_LABELS[lv]=purpose==='sale'
+      ? (lv===3?'ห้องขายหลัก':(lv===4?'ห้องขายย่อย':'ห้องขาย'))
+      : meta.label;
+  }
+}
+function loadRoomPurposeSettings(){
+  roomLevelPurposes={...ROOM_PURPOSE_DEFAULT,...getLS(ROOM_PURPOSE_KEY,{})};
+  applyRoomPurposeLabels();
+}
+function roomPurposeForLevel(level){return roomLevelPurposes[level]||ROOM_PURPOSE_DEFAULT[level]||'group';}
+function isSalesLevel(level){return roomPurposeForLevel(level)==='sale';}
+function isMeetingLevel(level){return roomPurposeForLevel(level)==='meeting';}
+function isMeetingRoom(r){return !!r&&isMeetingLevel(roomLevel(r));}
+// ROOM somsod realtime refresh — local equivalent of Firestore onSnapshot.
+// ทุก mutation ที่เปลี่ยน lots / sales / purchases / income / expense / messages
+// เรียกฟังก์ชันนี้ → feed-stats-strip + feed-body / board / chat re-render ทันที
+// ไม่มี polling, ไม่มี setInterval — re-render เกิดเฉพาะเมื่อข้อมูลเปลี่ยนจริง
+function refreshSomsodIfActive(){
+  try{
+    if(typeof currentApp==='undefined'||currentApp!=='feed')return;
+    if(typeof feedFilter==='undefined')return;
+    renderFeedStatsStrip();
+    if(feedFilter==='chat'){if(typeof feedChatRender==='function')feedChatRender();}
+    else if(feedFilter==='board'){if(typeof feedRenderBoard==='function')feedRenderBoard();}
+    else{renderFeed();}
+  }catch(_){}
+}
+function saveRooms(){saveLS('org_rooms',rooms);refreshSomsodIfActive();scheduleAppStatePush('rooms');}
+function findRoom(id){return rooms.find(r=>r.id===id);}
+function roomLevel(r){return r?(r.level||(r.isCategory?1:4)):0;}
+// Sales-capable rooms are driven by the configurable level-purpose map.
+// A category level can be both expandable and sellable when its purpose is set to "sale".
+function isLeafRoom(r){const lv=roomLevel(r);return lv===4;}
+function isSellable(r){const lv=roomLevel(r);return isSalesLevel(lv);}
+function getTopRooms(){
+  // Top-level rooms = no parent, OR parentId pointing to a room that no longer exists
+  // (orphan recovery — without this, rooms imported/synced from another device whose
+  // parent chain is missing locally would silently disappear from the sidebar).
+  const ids=new Set(rooms.map(r=>r.id));
+  return rooms.filter(r=>!r.parentId||!ids.has(r.parentId));
+}
+function getChildren(id){return rooms.filter(r=>r.parentId===id);}
+function getCategories(){return rooms.filter(r=>r.isCategory&&roomLevel(r)===1);}
+function getRoomsOfCategory(catId){return rooms.filter(r=>!r.isCategory&&r.parentId===catId);}
+
+
+// ── ROOM HIERARCHY POPUP ──
+let _rpStack=[]; // stack ของ level ที่เปิดอยู่ [{level, parentId, title}]
+
+function openRoomPopup(level, parentId, title, shortTitle){
+  _rpStack=[{level,parentId,title,shortTitle:shortTitle||title}];
+  _renderRoomPopup();
+  document.getElementById('room-popup-ov').classList.add('open');
+}
+
+function _renderRoomPopup(){
+  const state=_rpStack[_rpStack.length-1];
+  const body=document.getElementById('room-popup-body');
+  const titleEl=document.getElementById('room-popup-title');
+  const crumbEl=document.getElementById('room-popup-crumb');
+  const backEl=document.getElementById('room-popup-back');
+  
+  // breadcrumb
+  const crumb=_rpStack.map(s=>s.shortTitle||s.title).join(' › ');
+  if(crumbEl)crumbEl.textContent=_rpStack.length>1?crumb:'';
+  titleEl.textContent=state.shortTitle||state.title;
+  backEl.style.display=_rpStack.length>1?'flex':'none';
+  
+  const lv=state.level;
+  body.className='room-popup-body lv'+lv;
+  
+  const kids = state.parentId 
+    ? rooms.filter(r=>r.parentId===state.parentId)
+    : rooms.filter(r=>!r.parentId||!new Set(rooms.map(x=>x.id)).has(r.parentId));
+  
+  if(!kids.length){
+    body.innerHTML='<div style="grid-column:1/-1;padding:20px;text-align:center;color:var(--muted);font-size:13px">ยังไม่มีห้องในระดับนี้</div>';
+    return;
+  }
+  
+  body.innerHTML=kids.map(r=>{
+    const rlv=roomLevel(r);
+    const hasChildren=rooms.some(x=>x.parentId===r.id);
+    const sellable=isSellable(r);
+    const sales=sellable?getRoomSales(r):[];
+    const total=sales.reduce((s,x)=>s+(Number(x.total)||0),0);
+    // Meeting rooms: แสดงแชทล่าสุด
+    let sub='';
+    if(isMeetingRoom(r)){
+      const msgs=loadL2Messages(r.id)||[];
+      const lastMsg=msgs[msgs.length-1];
+      sub=lastMsg?(lastMsg.by?lastMsg.by+': ':'')+escHtml((lastMsg.txt||'').slice(0,30)):'ยังไม่มีแชท';
+    } else if(sellable){
+      sub=sales.length?sales.length+' รายการ · ฿'+fmt(total):'ยังไม่มีรายการ';
+    } else if(hasChildren){
+      sub=LEVEL_LABELS[rlv+1]||'';
+    }
+    const activeCls=(currentRoom===r.id||(l2CurId===r.id))?'active':'';
+    const cardColor=r.color?`style="border-color:${r.color};"`:'';
+    const iconBg=r.color?`style="background:${r.color}20;border-radius:50%;padding:4px"`:'';
+    return `<div class="room-popup-card lv${rlv} ${activeCls}" ${cardColor} onclick="roomPopupSelect('${r.id}')">
+      <span class="rp-icon" ${iconBg}>${r.icon||LEVEL_ICONS[rlv]}</span>
+      <span class="rp-name">${escHtml(r.name)}</span>
+      ${sub?`<span class="rp-sub">${sub}</span>`:''}
+    </div>`;
+  }).join('');
+}
+
+async function roomPopupSelect(id){
+  const r=findRoom(id);if(!r)return;
+  const lv=roomLevel(r);
+  const hasChildren=rooms.some(x=>x.parentId===id);
+  const sellable=isSellable(r);
+  
+  if(sellable){
+    // เลือกห้องขายเลย
+    closeRoomPopup();
+    if(!Array.isArray(r.sales)){r.sales=[];saveRooms();}
+    if(!r.customer){r.customer={};saveRooms();}
+    if(currentApp!=='chat')await switchApp('chat');
+    selectRoom(id);
+  } else if(isMeetingRoom(r)){
+    // ห้องประชุม → เปิดหน้าแชท/ฟีดของห้องนั้น
+    closeRoomPopup();
+    openL2Page(id);
+  } else if(hasChildren){
+    // เปิดชั้นถัดไปใน popup
+    const nextTitle=LEVEL_LABELS[lv+1]||r.name;
+    _rpStack.push({level:lv+1,parentId:id,title:escHtml(r.name)+' › '+nextTitle,shortTitle:nextTitle});
+    _renderRoomPopup();
+  }
+}
+
+function roomPopupBack(){
+  if(_rpStack.length>1){_rpStack.pop();_renderRoomPopup();}
+}
+
+function closeRoomPopup(){
+  document.getElementById('room-popup-ov').classList.remove('open');
+  _rpStack=[];
+  closeSidebar();
+}
+// ── END ROOM HIERARCHY POPUP ──
+function renderRooms(){
+  const list=document.getElementById('rlist');
+  if(!list)return;
+  const tops=getTopRooms();
+  let html='';
+  if(!tops.length){
+    html=`<div class="rnone">ยังไม่มี${LEVEL_LABELS[1]} กด + ด้านบนเพื่อเพิ่ม</div>`;
+  }
+  tops.forEach(r=>{html+=renderRoomNode(r);});
+  list.innerHTML=html;
+}
+function renderRoomNode(r){
+  const lv=roomLevel(r);
+  const kids=getChildren(r.id);
+  const collapsed=cdCollapsedCats[r.id]?' collapsed':'';
+  if(lv<4){
+    const addChildLabel=lv<4?('+ เพิ่ม'+LEVEL_LABELS[lv+1]):'+ เพิ่มลูกค้า';
+    const sellable=isSellable(r);
+    const meeting=isMeetingRoom(r);
+    // Meeting rooms are full pages. Sales-capable nodes open the sales page directly.
+    const l2Btn='';
+    // Clicking the name on a sellable node opens the sales room directly;
+    // clicking a meeting node opens the meeting page (chat + feed + profile status).
+    const nameClick=sellable?` onclick="event.stopPropagation();selectSellableNode('${r.id}')"`
+                   :(meeting?` onclick="event.stopPropagation();openL2Page('${r.id}')"`:'' );
+    const sellableCls=(sellable||meeting)?' sellable':'';
+    const unreadBadge=(sellable&&r.unread)?`<span class="rbadge" style="margin-right:4px">${r.unread}</span>`:'';
+    const activeCls=((sellable&&currentRoom===r.id)||(meeting&&currentApp==='l2'&&l2CurId===r.id))?' active':'';
+    // Sidebar shows every level again; row click toggles children, name click opens the room page.
+    const rowClick=`toggleCat('${r.id}',event)`;
+    let html=`<div class="cat-head lv${lv}${collapsed}${sellableCls}${activeCls}" onclick="${rowClick}">`+
+      `<span class="cat-chev">▼</span>`+
+      `<span class="cat-ic" style="color:${r.color||LEVEL_COLORS[lv]}">${r.icon||LEVEL_ICONS[lv]}</span>`+
+      `<span class="cat-nm"${nameClick}>${escHtml(r.name)}</span>`+
+      `<span class="cat-lv-tag">L${lv}</span>`+
+      unreadBadge+
+      l2Btn+
+      `<button class="cat-add" onclick="event.stopPropagation();openAddChildNode('${r.id}')" title="${escAttr(addChildLabel)}">+</button>`+
+      `<button class="cat-edit" onclick="event.stopPropagation();openEditRoomNode('${r.id}')" title="แก้ไข">✎</button>`+
+      `<button class="cat-del" onclick="event.stopPropagation();delRoomNode('${r.id}')" title="ลบ">✕</button>`+
+    `</div>`;
+    html+=`<div class="cat-children">`;
+    if(!kids.length){
+      const nextLv=lv+1;
+      if(!sellable)html+=`<div class="rnone">— ยังไม่มี${LEVEL_LABELS[nextLv]} —</div>`;
+    }
+    kids.forEach(k=>{html+=renderRoomNode(k);});
+    html+=`</div>`;
+    return html;
+  }
+  // Leaf (level 4)
+  if(isMeetingRoom(r)){
+    const msgs=loadL2Messages(r.id)||[];
+    const lastMsg=msgs[msgs.length-1];
+    const prev=lastMsg?(lastMsg.by?lastMsg.by+': ':'')+(lastMsg.txt||'').slice(0,34):'ยังไม่มีแชท';
+    return `<div class="ri${currentApp==='l2'&&l2CurId===r.id?' active':''}" onclick="openL2Page('${r.id}')">
+      <div class="ricon" style="color:${r.color}">${r.icon||LEVEL_ICONS[4]}</div>
+      <div class="rinfo"><div class="rname">${escHtml(r.name)}</div><div class="rprev">${escHtml(prev)}</div></div>
+      <button class="rdel" onclick="event.stopPropagation();delRoomNode('${r.id}')">✕</button>
+    </div>`;
+  }
+  if(!isSellable(r)){
+    return `<div class="ri" onclick="openEditRoomNode('${r.id}')">
+      <div class="ricon" style="color:${r.color}">${r.icon||LEVEL_ICONS[4]}</div>
+      <div class="rinfo"><div class="rname">${escHtml(r.name)}</div><div class="rprev">${escHtml(LEVEL_LABELS[4]||'ห้อง')}</div></div>
+      <button class="rdel" onclick="event.stopPropagation();delRoomNode('${r.id}')">✕</button>
+    </div>`;
+  }
+  const sales=getRoomSales(r);
+  const total=sales.reduce((s,x)=>s+(Number(x.total)||0),0);
+  const prev=sales.length?(sales.length+' รายการ · ฿'+fmt(total)):'ยังไม่มีรายการขาย';
+  const unreadBadge=r.unread?`<span class="rbadge">${r.unread}</span>`:'';
+  return `<div class="ri${currentRoom===r.id?' active':''}" onclick="selectRoom('${r.id}')">
+    <div class="ricon" style="color:${r.color}">${r.icon}</div>
+    <div class="rinfo"><div class="rname">${escHtml(r.name)}</div><div class="rprev">${escHtml(prev)}</div></div>
+    ${unreadBadge}
+    <button class="rdel" onclick="event.stopPropagation();delRoomNode('${r.id}')">✕</button>
+  </div>`;
+}
+function toggleCat(id){
+  cdCollapsedCats[id]=!cdCollapsedCats[id];
+  saveLS('org_cat_collapsed',cdCollapsedCats);
+  renderRooms();
+}
+
+// REALTIME BUY/SELL FEED (cart pin)
+let feedFilter='all';
+function openCartFeed(){switchApp('feed');}
+// Feed filter: 'all' | 'buy' | 'sell' | 'chat' | 'board'
+function setFeedFilter(k,btn){
+  feedFilter=k;
+  document.querySelectorAll('.feed-fbtn').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  const body=document.getElementById('feed-body');
+  const board=document.getElementById('feed-board');
+  const chat=document.getElementById('feed-chat');
+  const strip=document.getElementById('feed-stats-strip');
+  if(k==='chat'){
+    body.style.display='none';board.style.display='none';chat.style.display='flex';
+    if(strip)strip.style.display='none';
+    feedChatRender();
+    syncFeedChatFromServer();
+  }else if(k==='board'){
+    body.style.display='none';board.style.display='block';chat.style.display='none';
+    if(strip)renderFeedStatsStrip();
+    // Leaving chat — collapse popup mode if still active
+    if(chat.classList.contains('feed-chat-popup'))toggleFeedChatPopup(false);
+    feedRenderBoard();
+  }else{
+    body.style.display='flex';board.style.display='none';chat.style.display='none';
+    if(strip)renderFeedStatsStrip();
+    if(chat.classList.contains('feed-chat-popup'))toggleFeedChatPopup(false);
+    renderFeed();
+  }
+}
+// Fullscreen popup toggle for ROOM somsod chat — gives extra height for easier reading/typing
+function toggleFeedChatPopup(force){
+  const chat=document.getElementById('feed-chat');if(!chat)return;
+  const wantOn=(force===undefined)?!chat.classList.contains('feed-chat-popup'):!!force;
+  if(wantOn){
+    // Force chat to be visible (user may trigger from non-chat filter)
+    if(feedFilter!=='chat'){
+      const btn=document.querySelector('.feed-fbtn[data-fk="chat"]');
+      if(btn)setFeedFilter('chat',btn);
+    }
+    chat.classList.add('feed-chat-popup');
+    const btn=document.getElementById('feed-chat-expand');if(btn){btn.textContent='⤡';btn.title='ย่อกลับ';}
+    setTimeout(()=>{const inp=document.getElementById('feed-chat-inp');if(inp)inp.focus();feedChatRender();},40);
+  }else{
+    chat.classList.remove('feed-chat-popup');
+    const btn=document.getElementById('feed-chat-expand');if(btn){btn.textContent='⤢';btn.title='ขยายเต็มจอ';}
+  }
+}
+// Is this room/category DS-tagged? Either room.dsTag===true OR name contains "DS"
+function roomIsDS(r){
+  if(!r)return false;
+  if(r.dsTag)return true;
+  const n=(r.name||'').toUpperCase();
+  return /\bDS\b/.test(n)||n.includes('DS');
+}
+// Does the given roomId belong to a DS-tagged ancestor?
+function roomInDSChain(rid){
+  let cur=findRoom(rid);
+  while(cur){
+    if(roomIsDS(cur))return true;
+    if(!cur.parentId)break;
+    cur=findRoom(cur.parentId);
+  }
+  return false;
+}
+function roomBreadcrumb(rid){
+  const r=findRoom(rid);if(!r)return '';
+  const chain=[r.name];
+  let cur=r;
+  while(cur.parentId){const p=findRoom(cur.parentId);if(!p)break;chain.unshift(p.name);cur=p;}
+  return chain.join(' › ');
+}
+function buildFeedItems(){
+  const out=[];
+  // Per-room sales (ขาย = sell = green) — any level configured as a sales room
+  rooms.forEach(r=>{
+    if(!r)return;
+    if(!isSellable(r))return;
+    if(!Array.isArray(r.sales))return;
+    r.sales.forEach(s=>{
+      out.push({
+        kind:'sell',
+        ts:Number(s.ts)||(s.date?new Date(s.date).getTime():0)||0,
+        date:s.date||'',
+        name:s.name||'-',
+        qty:s.qty,unit:s.unit,
+        total:Number(s.total)||0,
+        roomId:r.id,
+        path:roomBreadcrumb(r.id),
+        note:s.note||'',by:s.by||''
+      });
+    });
+  });
+  // Finance entries — each row is either exp (buy/red) or inc (sell/green)
+  finEntries.forEach(e=>{
+    const ts=Number(e.id)||(e.date?new Date(e.date).getTime():0);
+    const pathBase=e.roomName?('ห้อง: '+e.roomName):'รายรับ-รายจ่าย';
+    (e.expItems||[]).forEach(it=>{
+      out.push({
+        kind:'buy',
+        ts,
+        date:e.date,
+        name:it.name||'-',
+        qty:it.qty,unit:it.unit,
+        total:Number(it.total)||0,
+        roomId:e.roomId||'',
+        path:e.roomId?roomBreadcrumb(e.roomId):pathBase,
+        finEntryId:e.id
+      });
+    });
+    (e.incItems||[]).forEach(it=>{
+      // Skip if this incItem came from a sale (already included via room.sales above) — match by saleId
+      if(it.saleId)return;
+      out.push({
+        kind:'sell',
+        ts,
+        date:e.date,
+        name:it.name||'-',
+        qty:it.qty,unit:it.unit,
+        total:Number(it.total)||0,
+        roomId:e.roomId||'',
+        path:e.roomId?roomBreadcrumb(e.roomId):pathBase,
+        finEntryId:e.id
+      });
+    });
+  });
+  // Newest first
+  out.sort((a,b)=>(b.ts||0)-(a.ts||0));
+  return out;
+}
+function fmtFeedTime(ts,date){
+  if(ts){
+    const d=new Date(ts);
+    const today=new Date();today.setHours(0,0,0,0);
+    const that=new Date(ts);that.setHours(0,0,0,0);
+    const diffDays=Math.round((today-that)/86400000);
+    const tm=d.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
+    if(diffDays===0)return 'วันนี้ '+tm;
+    if(diffDays===1)return 'เมื่อวาน '+tm;
+    return fmtDate(d.toISOString().slice(0,10))+' '+tm;
+  }
+  return date?fmtDate(date):'';
+}
+function renderFeed(){
+  const box=document.getElementById('feed-body');
+  const sub=document.getElementById('feed-sub');
+  if(!box)return;
+  // Render the stats strip every time feed renders (keeps juice volume realtime)
+  renderFeedStatsStrip();
+  let all=buildFeedItems();
+  // ROOM somsod = ภาพรวมทั้งธุรกิจ — รวมทุกห้อง (ไม่กรอง DS เหมือนเดิม)
+  const list=all.filter(x=>feedFilter==='all'?true:x.kind===feedFilter);
+  if(sub){
+    const nBuy=all.filter(x=>x.kind==='buy').length;
+    const nSell=all.filter(x=>x.kind==='sell').length;
+    sub.textContent=`ทั้งหมด ${all.length} รายการ · 🟥 ซื้อ ${nBuy} · 🟩 ขาย ${nSell} · เรียลไทม์`;
+  }
+  if(!list.length){box.innerHTML='<div class="feed-empty">ยังไม่มีรายการ — เมื่อมีการขาย/ซื้อในห้องใดๆ จะอัปเดตที่นี่ทันที</div>';return;}
+  box.innerHTML=list.map(x=>{
+    const cls=x.kind;
+    const tag=x.kind==='buy'?'ซื้อ':'ขาย';
+    const sign=x.kind==='buy'?'-':'+';
+    const qtyPart=x.qty?`<small style="color:var(--muted);font-weight:500"> × ${escHtml(String(x.qty))}${x.unit?' '+escHtml(x.unit):''}</small>`:'';
+    const pathAttr=x.roomId?` onclick="event.stopPropagation();feedOpenRoom('${x.roomId}')"`:'';
+    const pathCls=x.roomId?'feed-path':'';
+    return `<div class="feed-card ${cls}">
+      <div class="feed-row1">
+        <span class="feed-tag ${cls}">${tag}</span>
+        <span class="feed-amount ${cls}">${sign}฿${fmt(x.total)}</span>
+      </div>
+      <div class="feed-name">${escHtml(x.name)}${qtyPart}</div>
+      <div class="feed-meta">
+        <span class="${pathCls}"${pathAttr}>${escHtml(x.path||'-')}</span>
+        <span class="feed-time">${fmtFeedTime(x.ts,x.date)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+function feedOpenRoom(rid){
+  const r=findRoom(rid);if(!r)return;
+  closeOv('ov-l2');
+  switchApp('chat');
+  // If room is sellable, select directly; otherwise expand and focus.
+  if(isSellable(r))selectRoom(rid);
+  else{
+    // Expand this node in the room tree so user can see children
+    if(cdCollapsedCats[rid]){cdCollapsedCats[rid]=false;saveLS('org_cat_collapsed',cdCollapsedCats);renderRooms();}
+  }
+}
+
+// ── ROOM somsod — display settings + juice-stock widget ──
+const FEED_SETTINGS_KEY='org_feed_display_settings';
+function loadFeedSettings(){const s=getLS(FEED_SETTINGS_KEY,{});return{inc:s.inc!==false,exp:s.exp!==false,sell:s.sell!==false,buy:s.buy!==false,juice:s.juice!==false};}
+function openFeedSettings(){/* removed: ตั้งค่าการโชว์ feature retired — strip always uses defaults */}
+function saveFeedSettings(){/* removed */}
+// Compute the totals shown on the KPI strip
+// แต่ละค่าต้องมาจาก Firestore-equivalent collection ตามสเปก:
+//   รายรับ      → finEntries.incTotal (finEntries จะถูกสร้างเฉพาะตอน "ชำระแล้ว"
+//                  เท่านั้น — ทั้ง cash sale และ markWithdrawPaid; เครดิตที่ยังไม่ชำระ
+//                  จะไม่มี finEntry → ไม่ถูกนับเป็นรายรับ)
+//   รายจ่าย    → finEntries.expTotal (รวมทุก expense entry ทุกประเภท)
+//   รวมยอดขาย  → rooms[].sales[].total (ทุก transaction รวมเครดิต+เงินสด ทุกห้องขาย)
+//   รวมยอดซื้อ → factory purchases: facEmpty (ซื้อขวดเปล่าเข้า) + facBottling
+//                  (ผลิต/บรรจุ) + manual purchase rows ใน finEntries.expItems ที่ไม่ใช่
+//                  facKey (กันการนับซ้ำกับ factory)
+function feedKPIs(){
+  const incTotal=(finEntries||[]).reduce((s,e)=>s+(Number(e.incTotal)||0),0);
+  const expTotal=(finEntries||[]).reduce((s,e)=>s+(Number(e.expTotal)||0),0);
+  let sellSum=0;
+  (rooms||[]).forEach(r=>{
+    if(!r)return;
+    if(!isSellable(r))return;
+    (r.sales||[]).forEach(x=>{sellSum+=Number(x.total)||0;});
+  });
+  let buySum=0;
+  (facEmpty||[]).forEach(e=>{
+    if(!e||e.kind!=='ซื้อเข้า')return;
+    const t=Number(e.total)||(Number(e.qty||0)*Number(e.price||0));
+    buySum+=t;
+  });
+  (facBottling||[]).forEach(b=>{
+    if(!b||b.kind==='sale-draw')return;
+    const t=Number(b.total)||(Number(b.qty||0)*Number(b.price||0));
+    buySum+=t;
+  });
+  (finEntries||[]).forEach(e=>{
+    if(!e||e.facKey)return; // factory rows already counted above
+    (e.expItems||[]).forEach(it=>{buySum+=Number(it.total)||0;});
+  });
+  return {incTotal,expTotal,sellSum,buySum};
+}
+// ดึงจาก lots collection (facLots) — รวม mlRemaining ของทุก active lot.
+// realtime: ค่านี้คำนวณจาก facLots + facBottling ทุกครั้งที่ render (mutation ทุกตัวเรียก
+// refreshSomsodIfActive/updateJuiceHeader → re-render → ค่าตรงกับ source-of-truth)
+function juiceStockTotals(){
+  const lots=facLots||[];
+  // lot ถือว่า active เมื่อไม่ได้ทำเครื่องหมาย archived/deleted (ในระบบนี้ legacy lots
+  // ไม่มี field status — นับเป็น active โดยปริยาย)
+  const active=lots.filter(l=>{
+    if(!l)return false;
+    const st=String(l.status||'').toLowerCase();
+    if(st==='archived'||st==='deleted')return false;
+    return true;
+  });
+  let current=0,capacity=0,lowCount=0;
+  active.forEach(l=>{
+    const total=Math.max(0,Number(l.juiceMl||l.mlTotal||FAC_DEFAULT_JUICE_ML));
+    const rem=Math.max(0,facLotRemaining(l.lot));
+    current+=rem;capacity+=total;
+    if(rem>0&&rem<FAC_LOW_JUICE_ML)lowCount++;
+  });
+  return {current,capacity,lowCount,count:active.length};
+}
+function renderFeedStatsStrip(){
+  const box=document.getElementById('feed-stats-strip');if(!box)return;
+  const s=loadFeedSettings();
+  const k=feedKPIs();
+  const parts=[];
+  if(s.juice){
+    const j=juiceStockTotals();
+    const pct=j.capacity>0?Math.min(100,Math.round((j.current/j.capacity)*100)):0;
+    const used=Math.max(0,j.capacity-j.current);
+    const usedPct=j.capacity>0?Math.round((used/j.capacity)*100):0;
+    const alert=j.lowCount>0;
+    parts.push(`<div style="flex:1 1 100%;min-width:240px;background:${alert?'linear-gradient(135deg,#fef2f2,#fff)':'linear-gradient(135deg,#fff4e6,#fff)'};border:1.5px solid ${alert?'#fca5a5':'#fed7aa'};border-radius:12px;padding:12px 14px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:22px">🍊</span>
+        <div style="flex:1">
+          <div style="font-size:11px;font-weight:700;color:${alert?'#991b1b':'#b45309'};letter-spacing:.3px">ปริมาณน้ำส้มในสต๊อก (เรียลไทม์)</div>
+          <div style="font-size:20px;font-weight:800;color:${alert?'#991b1b':'#9a3412'}">${fmt(j.current)} <span style="font-size:13px;font-weight:600">ml</span></div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">รวมจาก ${j.count} Lot · ทั้งหมดตั้งต้น ${fmt(j.capacity)} ml · ใช้ไป ${usedPct}% · คงเหลือ ${pct}%${j.lowCount?` · ⚠️ Lot ใกล้หมด ${j.lowCount}`:''}</div>
+        </div>
+      </div>
+      <div style="background:#fff;height:10px;border-radius:6px;margin-top:8px;overflow:hidden;border:1px solid #fed7aa">
+        <div style="background:${alert?'#ef4444':'linear-gradient(to right,#f97316,#ffb347)'};height:100%;width:${pct}%;transition:width .3s"></div>
+      </div>
+    </div>`);
+  }
+  const cardCss='flex:1 1 140px;min-width:120px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 12px';
+  if(s.inc)parts.push(`<div style="${cardCss}"><div style="font-size:10px;color:var(--muted);font-weight:700">รายรับ</div><div style="font-size:17px;font-weight:800;color:#065f46">฿${fmt(k.incTotal)}</div></div>`);
+  if(s.exp)parts.push(`<div style="${cardCss}"><div style="font-size:10px;color:var(--muted);font-weight:700">รายจ่าย</div><div style="font-size:17px;font-weight:800;color:#991b1b">฿${fmt(k.expTotal)}</div></div>`);
+  if(s.sell)parts.push(`<div style="${cardCss}"><div style="font-size:10px;color:var(--muted);font-weight:700">รวมยอดขาย</div><div style="font-size:17px;font-weight:800;color:#065f46">฿${fmt(k.sellSum)}</div></div>`);
+  if(s.buy)parts.push(`<div style="${cardCss}"><div style="font-size:10px;color:var(--muted);font-weight:700">รวมยอดซื้อ</div><div style="font-size:17px;font-weight:800;color:#991b1b">฿${fmt(k.buySum)}</div></div>`);
+  box.style.display=parts.length?'flex':'none';
+  box.innerHTML=parts.join('');
+}
+
+// L2 ROOM PAGE — real room with open chat + feed + profile status
+//   (was a popup gated by SS1234; now a full page; no password on entry,
+//    chat always on. All messages are mirrored to a hidden admin archive.)
+let l2CurId=null;
+let l2RefreshTimer=null;
+function collectDescendants(id){
+  const out=[];const stack=[id];
+  while(stack.length){
+    const cur=stack.pop();
+    rooms.forEach(x=>{if(x.parentId===cur){out.push(x.id);stack.push(x.id);}});
+  }
+  return out;
+}
+// Top-bar entrance to the meeting room (chat + sales feed for a branch)
+function openMeetingRoom(){
+  // Prefer a meeting room named like "สาขาปทุม", else first configured meeting room.
+  const meetings=rooms.filter(r=>isMeetingRoom(r));
+  if(!meetings.length){alert('ยังไม่มีห้องประชุมในระบบ — ตั้งค่าชั้นห้องหรือเพิ่มห้องในแถบด้านข้างก่อน');return;}
+  const preferred=meetings.find(r=>(r.name||'').indexOf('ปทุม')>=0)||meetings[0];
+  openL2Page(preferred.id);
+}
+// Open a meeting room as a full page in the main area
+function openL2Page(id){
+  const r=findRoom(id);if(!r||!isMeetingRoom(r))return;
+  l2CurId=id;
+  if(currentApp!=='l2'){
+    currentApp='l2';
+    ['finance','inventory','chat','admin','feed','l2','factory','products','meeting'].forEach(a=>{
+      const p=document.getElementById('page-'+a);if(p)p.classList.toggle('active',a==='l2');
+      const b=document.getElementById('sw-'+a);if(b)b.classList.remove('active');
+    });
+  }
+  renderL2Page();
+  renderRooms();
+  // L2 page no longer auto-refreshes on a 3.5s timer — re-renders are now triggered
+  // explicitly when the user takes an action (sale, message). This avoids burning CPU
+  // and bandwidth while idle.
+  if(l2RefreshTimer){clearInterval(l2RefreshTimer);l2RefreshTimer=null;}
+  closeSidebar();
+}
+function renderL2Page(){
+  if(!l2CurId){
+    const any=rooms.find(x=>isMeetingRoom(x));
+    if(any)l2CurId=any.id;
+    else return;
+  }
+  const r=findRoom(l2CurId);if(!r)return;
+  document.getElementById('l2p-name').textContent=(LEVEL_LABELS[roomLevel(r)]||'ห้องประชุม')+' · '+r.name;
+  document.getElementById('l2p-icon').textContent=r.icon||'👥';
+  const crumb=[];let cur=r;
+  while(cur.parentId){const p=findRoom(cur.parentId);if(!p)break;crumb.unshift(p.name);cur=p;}
+  document.getElementById('l2p-sub').textContent=(crumb.join(' › ')||'กลุ่มลูกค้า')+' · แชทเปิด · บันทึกเก็บในแอดมิน';
+  // Profile status bar — show who is "in the room" with their level/position
+  renderL2StatusBar(r);
+  l2pRenderSaleBar();
+  l2pRenderChat();
+  syncL2ChatFromServer(l2CurId);
+  l2pRenderFeed();
+}
+function renderL2StatusBar(r){
+  const bar=document.getElementById('l2p-status-bar');if(!bar)return;
+  const me=currentUserObj();
+  const myBadge=userBadgeHtml(me);
+  // Show recent chat participants from this L2 room + admin archive (last 10 unique)
+  const archive=loadL2Messages(r.id);
+  const seen={};const recent=[];
+  for(let i=archive.length-1;i>=0&&recent.length<8;i--){
+    const m=archive[i];const key=m.email||m.sender;
+    if(!key||seen[key])continue;
+    seen[key]=1;recent.push(m);
+  }
+  let html=`<span style="font-size:11px;color:var(--muted);font-weight:600">ในห้อง:</span> ${myBadge}`;
+  if(recent.length){
+    html+=`<span style="color:var(--muted);font-size:11px">·</span>`;
+    html+=recent.map(m=>userBadgeFromMsg(m)).join('');
+  }
+  bar.innerHTML=html;
+}
+function userBadgeHtml(u){
+  if(!u)return '';
+  const init=(u.nickname||u.name||'?').slice(0,2);
+  const lv=u.level||0;
+  const lvLabel=LEVEL_NAME[lv]||'';
+  const pos=lv>=3?' · Operation':'';
+  const col=u.color||'#4f8ef7';
+  const pic=u.picture?`<img src="${escAttr(u.picture)}" style="width:22px;height:22px;border-radius:50%;object-fit:cover;border:2px solid ${col}"/>`
+                     :`<span style="width:22px;height:22px;border-radius:50%;background:${col};color:#fff;font-size:10px;display:inline-flex;align-items:center;justify-content:center;font-weight:700">${escHtml(init)}</span>`;
+  return `<span style="display:inline-flex;align-items:center;gap:5px;background:#f3f4f6;border-radius:16px;padding:3px 9px 3px 3px;margin-right:4px" title="${escAttr(u.nickname||u.name||'')} · เลเวล ${lv}">${pic}<span style="font-size:11px;color:var(--text);font-weight:600">${escHtml(u.nickname||u.name||'ไม่ระบุ')}</span>${u.id4?`<span style="font-size:9px;color:var(--muted);background:#fff;padding:1px 4px;border-radius:3px">#${escHtml(u.id4)}</span>`:''}${lvLabel?`<span style="font-size:9px;color:#fff;background:${LEVEL_COLOR[lv]||'#94a3b8'};padding:1px 5px;border-radius:3px;font-weight:700">L${lv}${pos}</span>`:''}</span>`;
+}
+function userBadgeFromMsg(m){
+  // Try to look up by id4 or email first
+  const u=(m.id4?regFindById4(m.id4):null)||(m.email?regFindByEmail(m.email):null)||{
+    name:m.sender,nickname:m.sender,level:m.level||0,id4:m.id4,color:m.color||'#94a3b8'
+  };
+  return userBadgeHtml(u);
+}
+function userAvatarHtml(u,size,col){
+  if(!u)return '';
+  const s=size||34;const bg=col||u.color||'#f3f4f6';
+  const tag=s>=60?'div':'span';
+  return u.picture
+    ?`<img src="${escAttr(u.picture)}" style="width:${s}px;height:${s}px;border-radius:50%;object-fit:cover"/>`
+    :`<${tag} style="width:${s}px;height:${s}px;border-radius:50%;background:${bg};display:${tag==='div'?'flex':'inline-flex'};align-items:center;justify-content:center;font-size:${Math.round(s*0.55)}px">${escHtml(u.avatarEmoji||'👤')}</${tag}>`;
+}
+function l2pSwitchTab(tab,btn){
+  switchTabStyle('.l2ptab',b=>b===btn);
+  document.getElementById('l2p-body-chat').style.display=tab==='chat'?'flex':'none';
+  document.getElementById('l2p-body-feed').style.display=tab==='feed'?'block':'none';
+  if(tab==='chat'){l2pRenderChat();l2pRenderSaleBar();syncL2ChatFromServer(l2CurId);}
+  if(tab==='feed'){l2pRenderFeed();}
+}
+function l2pRenderSaleBar(){
+  const el=document.getElementById('l2p-salebar');if(!el||!l2CurId)return;
+  const ids=collectDescendants(l2CurId);
+  let total=0,count=0;
+  rooms.forEach(r=>{
+    if(!ids.includes(r.id))return;
+    if(!isSellable(r))return;
+    (r.sales||[]).forEach(s=>{total+=Number(s.total)||0;count++;});
+  });
+  el.innerHTML=`<span>💰 ยอดขายจากชั้นที่ตั้งเป็นห้องขาย รวม <b style="color:#065f46">฿${fmt(total)}</b></span>
+    <span>· ${count} รายการ</span>
+    <span>· 🟢 แชทสด (ทุกคนคุยได้)</span>`;
+}
+function l2pRenderFeed(){
+  const box=document.getElementById('l2p-body-feed');if(!box||!l2CurId)return;
+  const descIds=collectDescendants(l2CurId);
+  const items=[];
+  rooms.forEach(r=>{
+    if(!r||!descIds.includes(r.id))return;
+    if(!isSellable(r))return;
+    (r.sales||[]).forEach(s=>{
+      items.push({
+        roomId:r.id,roomName:r.name,
+        ts:Number(s.ts)||(s.date?new Date(s.date).getTime():0)||0,
+        date:s.date||'',name:s.name||'-',qty:s.qty,unit:s.unit,
+        total:Number(s.total)||0,path:roomBreadcrumb(r.id),lv:roomLevel(r),
+        kind:s.kind||'sell',status:wdStatus(s),dueDate:s.dueDate||'',paidDate:s.paidDate||'',
+        overdueDays:wdOverdueDays(s)
+      });
+    });
+  });
+  // เครดิต "ยังไม่จ่าย" ขึ้นก่อนตามสเปก, ตามด้วย "รอชำระ", แล้วจึงเรียงตามเวลา
+  const statusRank={overdue:0,pending:1,paid:2,na:2};
+  items.sort((a,b)=>{
+    const ra=statusRank[a.status],rb=statusRank[b.status];
+    if(ra!==rb)return ra-rb;
+    return (b.ts||0)-(a.ts||0);
+  });
+  if(!items.length){box.innerHTML='<div class="feed-empty">ยังไม่มีรายการขายในชั้นที่ตั้งเป็นห้องขายของกลุ่มนี้</div>';return;}
+  const total=items.reduce((s,x)=>s+(x.total||0),0);
+  const pendTotal=items.filter(x=>x.status==='pending').reduce((s,x)=>s+x.total,0);
+  const overTotal=items.filter(x=>x.status==='overdue').reduce((s,x)=>s+x.total,0);
+  const headExtra=(pendTotal||overTotal)
+    ?` · <span style="color:#854d0e">🟡 รอชำระ ฿${fmt(pendTotal)}</span> · <span style="color:#991b1b">🔴 ยังไม่จ่าย ฿${fmt(overTotal)}</span>`
+    :'';
+  box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin-bottom:8px">ทั้งหมด ${items.length} รายการ · รวม <b style="color:#065f46">฿${fmt(total)}</b>${headExtra} · อัปเดตเมื่อเปิดหน้า</div>`+
+    items.map(x=>{
+      const qtyPart=x.qty?`<small style="color:var(--muted)"> × ${escHtml(String(x.qty))}${x.unit?' '+escHtml(x.unit):''}</small>`:'';
+      const isWd=x.kind==='withdraw';
+      let badge='',rowStyle='margin-bottom:6px;cursor:pointer';
+      if(isWd){
+        if(x.status==='paid'){
+          badge=`<span class="pill-paid">✓ ชำระแล้ว${x.paidDate?' · '+fmtDate(x.paidDate):''}</span>`;
+        }else if(x.status==='overdue'){
+          badge=`<span class="pill-overdue">🔴 ยังไม่จ่าย${x.overdueDays?' · เกิน '+x.overdueDays+' วัน':''}</span>`;
+          rowStyle+=';background:linear-gradient(180deg,#fee2e2,#fff5f5);border-color:#fca5a5';
+        }else{
+          badge=`<span class="pill-pending">🟡 รอชำระ${x.dueDate?' · ครบ '+fmtDate(x.dueDate):''}</span>`;
+          rowStyle+=';background:linear-gradient(180deg,#fffbe5,#fffdf3);border-color:#fde68a';
+        }
+      }
+      const tag=isWd?'เบิก':'ขาย';
+      return `<div class="feed-card sell" style="${rowStyle}" onclick="feedOpenRoom('${x.roomId}')">
+        <div class="feed-row1">
+          <span class="feed-tag sell">${tag} · L${x.lv}</span>
+          <span class="feed-amount sell">+฿${fmt(x.total)}</span>
+        </div>
+        <div class="feed-name">${escHtml(x.name)}${qtyPart}${badge?' '+badge:''}</div>
+        <div class="feed-meta">
+          <span class="feed-path">${escHtml(x.path||'-')}</span>
+          <span class="feed-time">${fmtFeedTime(x.ts,x.date)}</span>
+        </div>
+      </div>`;
+    }).join('');
+}
+// Per-L2 chat messages (also mirrored to global archive)
+function l2MsgKey(id){return 'org_l2chat_'+id;}
+function loadL2Messages(id){return getLS(l2MsgKey(id),[]);}
+function saveL2Messages(id,arr){saveLS(l2MsgKey(id),arr);}
+function renderChatBox(box,msgs,emptyTxt,holdSrc,holdRoom){
+  if(!msgs.length){box.innerHTML=emptyMsg(emptyTxt,'28px');return;}
+  const meEmail=(profile&&profile.email||'').toLowerCase();
+  box.innerHTML=msgs.map(m=>{
+    const mine=meEmail&&(m.email||'').toLowerCase()===meEmail;
+    const t=new Date(m.ts).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
+    const lv=m.level||0;const pos=lv>=3?' · Operation':'';
+    const tag=lv?`<span style="font-size:9px;color:#fff;background:${LEVEL_COLOR[lv]||'#94a3b8'};padding:1px 5px;border-radius:3px;font-weight:700;margin-left:4px">L${lv}${pos}</span>`:'';
+    const idTag=m.id4?`<span style="font-size:9px;color:var(--muted);margin-left:4px">#${escHtml(m.id4)}</span>`:'';
+    const mid=escAttr(m.id||'');
+    return `<div class="chat-msg-wrap${mine?' me':''}" onpointerdown="chatHoldStart(event,'${holdSrc}','${holdRoom}','${mid}')" onpointerup="chatHoldCancel()" onpointerleave="chatHoldCancel()" onpointercancel="chatHoldCancel()" oncontextmenu="event.preventDefault();openChatActions('${holdSrc}','${holdRoom}','${mid}',event.clientX,event.clientY)">
+      ${chatAvatarHtml(m)}
+      <div class="chat-bubble">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:2px">${escHtml(m.sender||'?')}${idTag}${tag}</div>
+        ${renderChatMsgBody(m)}
+        <div style="font-size:9px;color:var(--muted);text-align:right">${t}</div>
+      </div>
+    </div>`;
+  }).join('');
+  box.scrollTop=box.scrollHeight;
+}
+function l2pRenderChat(){
+  if(!l2CurId)return;
+  const box=document.getElementById('l2p-msgs');if(!box)return;
+  renderChatBox(box,loadL2Messages(l2CurId),'ยังไม่มีข้อความ — พิมพ์เพื่อเริ่มคุย','l2',escAttr(l2CurId));
+}
+function l2pSendChat(){
+  if(!l2CurId)return;
+  const inp=document.getElementById('l2p-inp');
+  const text=(inp&&inp.value||'').trim();if(!text)return;
+  l2pPostMessage({text});
+  inp.value='';
+}
+
+// CHAT ARCHIVE (hidden, admin-only, password-gated — no TTL)
+const CHAT_ARCHIVE_CODE='SS1234';
+const BOT_LEARNING_KEY='org_bot_learn';
+const CHAT_DELETED_KEY='org_chat_deleted_ids';
+const CHAT_SYNC_ENDPOINTS=['/api/chat-messages','/.netlify/functions/chat-messages'];
+let chatSyncTimer=null,chatSyncing=false;
+function loadDeletedChatIds(){return getLS(CHAT_DELETED_KEY,[]);}
+function saveDeletedChatIds(ids){saveLS(CHAT_DELETED_KEY,(ids||[]).filter(Boolean).slice(-1000));}
+function rememberDeletedChatId(id){if(!id)return;saveDeletedChatIds([...new Set(loadDeletedChatIds().concat([id]))]);scheduleAppStatePush('deleteChatMessage');}
+function filterDeletedChatMessages(arr){
+  const deleted=new Set(loadDeletedChatIds());
+  return (arr||[]).filter(m=>m&&!deleted.has(m.id));
+}
+function archiveChatMessage(source,msg){
+  try{
+    let arr=getLS('org_chat_archive',[]);
+    arr.push({source,...msg});
+    if(arr.length>5000)arr=arr.slice(-5000);
+    saveLS('org_chat_archive',arr);
+  }catch(e){}
+}
+function loadChatArchive(){
+  try{return getLS('org_chat_archive',[]);}catch(e){return [];}
+}
+function chatMsgFingerprint(m){
+  return [m&&m.source||'',m&&m.roomId||'',m&&m.ts||'',m&&m.sender||'',m&&m.kind||'',m&&m.text||'',m&&m.stickerId||''].join('|');
+}
+function ensureChatMessageId(prefix,msg){
+  if(!msg)return '';
+  if(!msg.id)msg.id=[prefix||'chat',msg.roomId||'',msg.ts||Date.now(),Math.random().toString(36).slice(2,7)].filter(Boolean).join('_');
+  return msg.id;
+}
+function mergeChatMessages(local,remote){
+  const deleted=new Set(loadDeletedChatIds());
+  const byKey=new Map();
+  (local||[]).concat(remote||[]).forEach(m=>{
+    if(!m)return;
+    const key=m.id||chatMsgFingerprint(m);
+    if(deleted.has(key)||deleted.has(m.id))return;
+    byKey.set(key,{...(byKey.get(key)||{}),...m});
+  });
+  return [...byKey.values()].sort((a,b)=>(a.ts||0)-(b.ts||0)).slice(-500);
+}
+function getChatCollection(source,roomId){
+  if(source==='room_somsod')return {items:feedChatLoad(),save:arr=>feedChatSave(arr),render:()=>feedChatRender(),input:'feed-chat-inp'};
+  if(source==='l2')return {items:loadL2Messages(roomId),save:arr=>saveL2Messages(roomId,arr),render:()=>l2pRenderChat(),input:'l2p-inp'};
+  if(source==='chat_room'){
+    const c=findChatRoom(roomId);
+    return {items:(c&&c.messages)||[],save:arr=>{if(c){c.messages=arr;saveChatRoomMsgs(roomId);}},render:()=>renderCDMessages(roomId),input:'cd-text-'+roomId};
+  }
+  return null;
+}
+function closeChatActionMenu(){
+  document.querySelectorAll('.chat-action-menu').forEach(el=>el.remove());
+}
+function chatHoldStart(e,source,roomId,msgId){
+  if(e.pointerType==='mouse'&&e.button!==0)return;
+  chatHoldCancel(e);
+  window._chatHoldTimer=setTimeout(()=>openChatActions(source,roomId,msgId,e.clientX,e.clientY),520);
+}
+function chatHoldCancel(){
+  if(window._chatHoldTimer){clearTimeout(window._chatHoldTimer);window._chatHoldTimer=null;}
+}
+function openChatActions(source,roomId,msgId,x,y){
+  closeChatActionMenu();
+  const store=getChatCollection(source,roomId);
+  const msg=store&&store.items.find(m=>m&&m.id===msgId);
+  if(!msg)return;
+  const menu=document.createElement('div');
+  menu.className='chat-action-menu';
+  const canDelete=currentUserCanDeleteChat();
+  menu.innerHTML=`<button type="button" data-act="reply">ตอบกลับ</button>
+    <button type="button" data-act="copy">คัดลอก</button>
+    ${canDelete?'<button type="button" class="danger" data-act="delete">ลบข้อความ</button>':''}`;
+  document.body.appendChild(menu);
+  const rect=menu.getBoundingClientRect();
+  menu.style.left=Math.max(8,Math.min(window.innerWidth-rect.width-8,x||20))+'px';
+  menu.style.top=Math.max(8,Math.min(window.innerHeight-rect.height-8,y||20))+'px';
+  menu.onclick=e=>{
+    const act=e.target&&e.target.dataset&&e.target.dataset.act;
+    if(!act)return;
+    closeChatActionMenu();
+    if(act==='reply')replyToChatMessage(store,msg);
+    if(act==='copy')copyChatMessage(msg);
+    if(act==='delete')deleteChatMessage(source,roomId,msgId);
+  };
+  setTimeout(()=>document.addEventListener('click',closeChatActionMenu,{once:true}),0);
+}
+function replyToChatMessage(store,msg){
+  const inp=store&&document.getElementById(store.input);
+  if(!inp)return;
+  const text=(msg.audio?'เสียงพูด':msg.photo?'รูปภาพ':(msg.text||'')).toString().replace(/\s+/g,' ').slice(0,80);
+  inp.value='ตอบกลับ '+(msg.sender||'?')+': '+(text||'ข้อความ')+'\n';
+  inp.focus();
+}
+async function copyChatMessage(msg){
+  const text=msg.audio?'[เสียงพูด]':msg.photo?'[รูปภาพ]':(msg.text||'');
+  try{await navigator.clipboard.writeText(text);showToast('แชท','คัดลอกข้อความแล้ว');}
+  catch(e){prompt('คัดลอกข้อความ:',text);}
+}
+async function deleteRemoteChatMessage(id){
+  try{
+    await chatApi('',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,adminCode:ADMIN_CODE})});
+  }catch(e){}
+}
+async function deleteChatMessage(source,roomId,msgId){
+  if(!currentUserCanDeleteChat())return;
+  if(!confirm('ลบข้อความนี้?'))return;
+  const store=getChatCollection(source,roomId);if(!store)return;
+  rememberDeletedChatId(msgId);
+  store.save(store.items.filter(m=>m&&m.id!==msgId));
+  store.render();
+  archiveChatMessage(source,{id:'delete_'+msgId,ts:Date.now(),sender:profile.name||'แอดมิน',text:'ลบข้อความ '+msgId});
+  deleteRemoteChatMessage(msgId);
+}
+async function chatApi(path,opts){
+  let lastErr='';
+  for(const base of CHAT_SYNC_ENDPOINTS){
+    try{
+      const res=await fetch(base+path,opts);
+      const text=await res.text();
+      let data=null;try{data=text?JSON.parse(text):null;}catch(_){}
+      if(!res.ok||data?.ok===false)throw new Error((data&&(data.error||data.message))||text||('HTTP '+res.status));
+      return data||{};
+    }catch(e){lastErr=e.message||String(e);}
+  }
+  throw new Error(lastErr||'chat sync failed');
+}
+function chatRoomName(source,roomId){
+  if(source==='room_somsod')return 'ROOM somsod';
+  if(source==='l2'){const r=findRoom(roomId);return r?r.name:'ห้องชั้น 2';}
+  if(source==='chat_room'){const c=findChatRoom(roomId);return c?c.name:'ห้องแชท';}
+  return source||'chat';
+}
+async function syncChatMessage(source,msg,roomId,roomName){
+  try{
+    if(!msg)return;
+    const idPrefix=(source||'chat')+(roomId?('_'+roomId):'');
+    ensureChatMessageId(idPrefix,msg);
+    await chatApi('',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({source,roomId:roomId||'',roomName:roomName||chatRoomName(source,roomId||''),message:msg})
+    });
+  }catch(e){}
+}
+async function loadRemoteChat(source,roomId,limit){
+  const qs=new URLSearchParams();
+  if(source)qs.set('source',source);
+  if(roomId)qs.set('roomId',roomId);
+  qs.set('limit',String(limit||500));
+  const data=await chatApi('?'+qs.toString());
+  return Array.isArray(data.messages)?data.messages:[];
+}
+async function syncFeedChatFromServer(){
+  try{
+    const remote=await loadRemoteChat('room_somsod','',500);
+    if(!remote.length)return;
+    const merged=mergeChatMessages(feedChatLoad(),remote);
+    feedChatSave(merged);
+    if(currentApp==='feed'&&feedFilter==='chat')feedChatRender();
+  }catch(e){}
+}
+async function syncL2ChatFromServer(id){
+  if(!id)return;
+  try{
+    const remote=await loadRemoteChat('l2',id,500);
+    if(!remote.length)return;
+    const merged=mergeChatMessages(loadL2Messages(id),remote);
+    saveL2Messages(id,merged);
+    if(l2CurId===id)l2pRenderChat();
+  }catch(e){}
+}
+async function syncDrawerChatFromServer(id){
+  const c=findChatRoom(id);if(!c)return;
+  try{
+    const remote=await loadRemoteChat('chat_room',id,500);
+    if(!remote.length)return;
+    c.messages=mergeChatMessages(c.messages||[],remote);
+    saveChatRoomMsgs(id);
+    if(openChatIds.includes(id))renderCDMessages(id);
+  }catch(e){}
+}
+async function syncVisibleChatsFromServer(){
+  if(chatSyncing)return;
+  chatSyncing=true;
+  try{
+    await syncFeedChatFromServer();
+    if(l2CurId)await syncL2ChatFromServer(l2CurId);
+    for(const id of openChatIds)await syncDrawerChatFromServer(id);
+    renderSidebarChatRooms();
+  }finally{chatSyncing=false;}
+}
+function startChatSync(){
+  if(chatSyncTimer)return;
+  syncVisibleChatsFromServer();
+  chatSyncTimer=setInterval(syncVisibleChatsFromServer,10000);
+}
+async function loadRemoteChatArchive(){
+  try{
+    const data=await chatApi('?limit=1000&code='+encodeURIComponent(CHAT_ARCHIVE_CODE));
+    return Array.isArray(data.messages)?data.messages:[];
+  }catch(e){return [];}
+}
+// Bot learning — collect per-ID chat stats for future personalization
+function botIngestMessage(msg){
+  if(!msg||!msg.id4)return;
+  try{
+    const store=getLS(BOT_LEARNING_KEY,{});
+    const key=msg.id4;
+    if(!store[key])store[key]={count:0,chars:0,lastAt:0,samples:[]};
+    store[key].count++;store[key].chars+=(msg.text||'').length;store[key].lastAt=msg.ts||Date.now();
+    // Keep last 20 sample messages per ID (for downstream LLM fine-tuning / retrieval)
+    store[key].samples.push({ts:msg.ts,text:(msg.text||'').slice(0,400)});
+    if(store[key].samples.length>20)store[key].samples=store[key].samples.slice(-20);
+    saveLS(BOT_LEARNING_KEY,store);
+  }catch(e){}
+}
+
+// ROOM somsod — chat + leaderboard for DS-tagged sales
+const FEED_CHAT_KEY='org_feed_chat';
+let feedBoardGrain='day'; // 'day' | 'month' | 'year'
+function feedChatLoad(){return getLS(FEED_CHAT_KEY,[]);}
+function feedChatSave(arr){saveLS(FEED_CHAT_KEY,arr);}
+function feedChatRender(){
+  const box=document.getElementById('feed-chat-msgs');if(!box)return;
+  renderChatBox(box,feedChatLoad(),'ยังไม่มีแชทใน ROOM somsod — พิมพ์เพื่อเริ่มคุย','room_somsod','');
+}
+function feedChatSend(){
+  const inp=document.getElementById('feed-chat-inp');
+  const text=(inp&&inp.value||'').trim();if(!text)return;
+  feedChatPostMessage({text});
+  inp.value='';
+}
+// Helpers shared by text/sticker/photo posting in ROOM somsod chat
+function feedChatPostMessage(payload){
+  const msg=Object.assign({
+    id:'feed_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+    ts:Date.now(),
+    ...chatIdentity()
+  },payload);
+  const arr=feedChatLoad();arr.push(msg);feedChatSave(arr);
+  archiveChatMessage('room_somsod',msg);
+  botIngestMessage(msg);
+  feedChatRender();
+  syncChatMessage('room_somsod',msg,'','ROOM somsod');
+  notifyChatOthers('ROOM somsod',msg);
+}
+// Sticker tray (emoji-based — lightweight, no external assets)
+const CHAT_STICKERS=['😀','😁','😂','🤣','😍','😘','😎','🤩','🤗','🤔','😅','😇','😋','🥳','😜','😭','😡','🤯','🙄','😴','🤤','👍','👎','👏','🙏','💪','🙌','✌️','🤝','❤️','💔','🔥','⭐','🎉','🎊','🍊','🧃','🛒','📦','💰','💯','✅','❌','⚡','📸','🎁','🍀','🌟','☕','🥤'];
+function renderStickerTray(container,onPick){
+  if(!container)return;
+  container.innerHTML=CHAT_STICKERS.map((s,i)=>`<button type="button" data-i="${i}" style="width:40px;height:40px;border:none;background:#f7f7fa;border-radius:8px;font-size:22px;cursor:pointer">${s}</button>`).join('');
+  [...container.querySelectorAll('button')].forEach(b=>{
+    b.onclick=()=>{const i=parseInt(b.getAttribute('data-i'),10);onPick(CHAT_STICKERS[i]);};
+  });
+}
+function toggleStickerTray(trayId,postFn){
+  const tray=document.getElementById(trayId);if(!tray)return;
+  const open=tray.style.display!=='flex';
+  tray.style.display=open?'flex':'none';
+  if(open)renderStickerTray(tray,(s)=>{postFn({text:s,sticker:true});tray.style.display='none';});
+}
+function toggleFeedStickerTray(){toggleStickerTray('feed-sticker-tray',feedChatPostMessage);}
+function toggleL2StickerTray(){toggleStickerTray('l2p-sticker-tray',l2pPostMessage);}
+async function chatSendPhotoHelper(input,postFn){
+  const f=input.files&&input.files[0];if(!f){input.value='';return;}
+  try{
+    const d=await compressImage(f,900,0.75);
+    postFn({text:'',photo:d});
+  }catch(e){alert('อัพโหลดรูปไม่สำเร็จ: '+(e.message||e));}
+  finally{input.value='';}
+}
+async function feedChatSendPhoto(input){await chatSendPhotoHelper(input,feedChatPostMessage);}
+async function l2pSendPhoto(input){await chatSendPhotoHelper(input,l2pPostMessage);}
+function l2pPostMessage(payload){
+  if(!l2CurId)return;
+  const msg=Object.assign({
+    id:'l2_'+l2CurId+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+    ts:Date.now(),
+    ...chatIdentity(),
+    roomId:l2CurId
+  },payload);
+  const msgs=loadL2Messages(l2CurId);msgs.push(msg);saveL2Messages(l2CurId,msgs);
+  archiveChatMessage('l2:'+l2CurId,msg);
+  botIngestMessage(msg);
+  l2pRenderChat();
+  const r=findRoom(l2CurId);if(r)renderL2StatusBar(r);
+  syncChatMessage('l2',msg,l2CurId,(r&&r.name)||'ห้องชั้น 2');
+  notifyChatOthers((r&&r.name)||'ห้องแชท',msg);
+}
+// Render a chat message body — handles text, stickers, and photos uniformly
+function renderChatMsgBody(m){
+  let out='';
+  if(m.photo){out+=`<img src="${escAttr(m.photo)}" alt="" onclick="openLightbox(this.src)" style="max-width:220px;max-height:220px;border-radius:8px;display:block;margin-bottom:4px;cursor:zoom-in"/>`;}
+  if(m.audio){out+=`<audio class="chat-audio" controls preload="metadata" src="${escAttr(m.audio)}"></audio>`;}
+  if(m.sticker&&m.text){out+=`<div style="font-size:38px;line-height:1">${escHtml(m.text)}</div>`;}
+  else if(m.text){out+=`<div style="word-break:break-word;white-space:pre-wrap">${escHtml(m.text)}</div>`;}
+  return out;
+}
+let chatVoiceRec=null,chatVoiceChunks=[],chatVoiceTarget=null,chatVoiceStream=null;
+function chatVoiceButton(target,roomId){
+  if(target==='feed')return document.getElementById('voice-btn-feed');
+  if(target==='l2')return document.getElementById('voice-btn-l2');
+  if(target==='chat_room')return document.getElementById('voice-btn-cd-'+roomId);
+  return null;
+}
+function resetChatVoiceUI(){
+  document.querySelectorAll('.chat-voice-btn.recording').forEach(b=>{b.classList.remove('recording');b.textContent='🎙️';});
+}
+async function toggleChatVoice(target,roomId){
+  if(chatVoiceRec&&chatVoiceRec.state==='recording'){
+    chatVoiceRec.stop();
+    return;
+  }
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia||!window.MediaRecorder){
+    alert('เบราว์เซอร์นี้ยังไม่รองรับการส่งเสียงพูด');
+    return;
+  }
+  try{
+    chatVoiceTarget={target,roomId:roomId||''};
+    chatVoiceChunks=[];
+    chatVoiceStream=await navigator.mediaDevices.getUserMedia({audio:true});
+    const mime=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'audio/webm';
+    chatVoiceRec=new MediaRecorder(chatVoiceStream,{mimeType:mime});
+    const startedAt=Date.now();
+    chatVoiceRec.ondataavailable=e=>{if(e.data&&e.data.size)chatVoiceChunks.push(e.data);};
+    chatVoiceRec.onstop=()=>{
+      const targetInfo=chatVoiceTarget;
+      const blob=new Blob(chatVoiceChunks,{type:mime});
+      chatVoiceStream&&chatVoiceStream.getTracks().forEach(t=>t.stop());
+      resetChatVoiceUI();
+      chatVoiceRec=null;chatVoiceStream=null;chatVoiceTarget=null;
+      if(!blob.size||!targetInfo)return;
+      if(blob.size>850000){alert('ไฟล์เสียงยาวเกินไป กรุณาอัดใหม่ให้สั้นลง');return;}
+      const reader=new FileReader();
+      reader.onload=()=>postVoiceMessage(targetInfo.target,targetInfo.roomId,{kind:'voice',audio:reader.result,mime,durationMs:Date.now()-startedAt,text:''});
+      reader.readAsDataURL(blob);
+    };
+    chatVoiceRec.start();
+    const btn=chatVoiceButton(target,roomId);if(btn){btn.classList.add('recording');btn.textContent='■';}
+    setTimeout(()=>{if(chatVoiceRec&&chatVoiceRec.state==='recording')chatVoiceRec.stop();},60000);
+  }catch(e){resetChatVoiceUI();alert('เปิดไมโครโฟนไม่ได้: '+(e.message||e));}
+}
+function postVoiceMessage(target,roomId,payload){
+  if(target==='feed')feedChatPostMessage(payload);
+  else if(target==='l2')l2pPostMessage(payload);
+  else if(target==='chat_room')cdPostMessage(roomId,payload);
+}
+// Cross-chat notification: desktop + toast when someone else sends
+function notifyChatOthers(roomName,msg){
+  try{
+    const meEmail=(profile&&profile.email||'').toLowerCase();
+    if(msg.email&&msg.email.toLowerCase()===meEmail)return;
+    const preview=msg.audio?'[เสียงพูด]':msg.photo?'[รูปภาพ]':(msg.text||'');
+    showToast('💬 '+roomName,(msg.sender||'?')+': '+preview.slice(0,60));
+    if(typeof pushNotify==='function')pushNotify('💬 '+roomName,(msg.sender||'?')+': '+preview);
+  }catch(e){}
+}
+// Build per-user sales stats from DS-tagged rooms, at given grain
+function feedBoardData(grain){
+  const items=buildFeedItems().filter(x=>x.kind==='sell'&&x.roomId&&roomInDSChain(x.roomId));
+  // Bucket key: day=YYYY-MM-DD / month=YYYY-MM / year=YYYY
+  const byUser={};
+  items.forEach(x=>{
+    const d=x.date||new Date(x.ts).toISOString().slice(0,10);
+    const bkt=(grain==='year'?d.slice(0,4):grain==='month'?d.slice(0,7):d);
+    const by=x.by||'';
+    // Prefer message-level sender id; fallback to 'anon'
+    const userKey=by||'anon';
+    if(!byUser[userKey])byUser[userKey]={key:userKey,total:0,count:0,bucket:{}};
+    byUser[userKey].total+=Number(x.total)||0;
+    byUser[userKey].count++;
+    byUser[userKey].bucket[bkt]=(byUser[userKey].bucket[bkt]||0)+(Number(x.total)||0);
+  });
+  const ranked=Object.values(byUser).sort((a,b)=>b.total-a.total);
+  return ranked;
+}
+function feedRenderBoard(){
+  const el=document.getElementById('feed-board');if(!el)return;
+  const ranked=feedBoardData(feedBoardGrain);
+  const top10=ranked.slice(0,10);
+  const max=top10.reduce((m,x)=>Math.max(m,x.total),0)||1;
+  const grainBtn=(k,l)=>`<button class="feed-fbtn" style="flex:initial;padding:4px 10px${feedBoardGrain===k?';background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="feedBoardGrain='${k}';feedRenderBoard()">${l}</button>`;
+  let html=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <div style="font-size:13px;font-weight:700">🏆 อันดับยอดขาย (DS) · Top 10</div>
+    <div style="margin-left:auto;display:flex;gap:4px">${grainBtn('day','วัน')}${grainBtn('month','เดือน')}${grainBtn('year','ปี')}</div>
+  </div>`;
+  if(!top10.length){html+='<div class="feed-empty" style="padding:20px">ยังไม่มีข้อมูลยอดขายในห้อง DS</div>';}
+  else{
+    html+='<div style="display:flex;gap:8px;align-items:flex-end;min-height:180px;padding:12px 6px">';
+    top10.forEach((u,i)=>{
+      const h=Math.max(10,Math.round(140*u.total/max));
+      const user=regFindById4(u.key)||regFindByEmail(u.key);
+      const nm=user?(user.nickname||user.realName||u.key):(u.key==='anon'?'ไม่ระบุ':u.key);
+      const col=user?user.color||LEVEL_COLOR[user.level||1]:'#94a3b8';
+      const pic=user&&user.picture?`<img src="${escAttr(user.picture)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;border:2px solid ${col}"/>`
+              :`<span style="width:26px;height:26px;border-radius:50%;background:${col};color:#fff;font-size:11px;display:inline-flex;align-items:center;justify-content:center;font-weight:700">${escHtml((nm||'?').slice(0,2))}</span>`;
+      const star=i===0?`<span class="board-star" style="position:absolute;left:50%;top:-22px;transform:translateX(-50%);font-size:20px;animation:spin 2.2s linear infinite">⭐</span>`:'';
+      const me=currentUserObj();
+      const isMe=me&&(me.id4===u.key||(me.email&&me.email.toLowerCase()===String(u.key).toLowerCase()));
+      html+=`<div onclick="feedBoardOpenDetail('${escAttr(u.key)}')" style="flex:1;min-width:50px;max-width:72px;position:relative;cursor:pointer;text-align:center">
+        <div style="position:absolute;left:50%;transform:translateX(-50%);top:-36px">${pic}</div>
+        <div style="position:relative;margin-top:8px">
+          ${star}
+          <div style="background:linear-gradient(to top,${col},${col}aa);height:${h}px;border-radius:6px 6px 0 0;border:${isMe?'2px solid var(--accent)':'1px solid rgba(0,0,0,.08)'};min-height:10px"></div>
+        </div>
+        <div style="font-size:10px;font-weight:700;margin-top:3px">#${i+1}</div>
+        <div style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(nm)}</div>
+        <div style="font-size:10px;color:#065f46;font-weight:700">฿${fmt(u.total)}</div>
+      </div>`;
+    });
+    html+='</div>';
+  }
+  // "My stats" card — show current user's rank even if not in top 10
+  const me=currentUserObj();
+  if(me&&me.id4){
+    const myKey=me.id4;
+    const myIdx=ranked.findIndex(x=>x.key===myKey);
+    const my=myIdx>=0?ranked[myIdx]:{total:0,count:0};
+    html+=`<div style="margin-top:10px;padding:10px 12px;background:linear-gradient(135deg,#fff4e6,#fff);border:1px solid var(--accent);border-radius:10px;display:flex;align-items:center;gap:10px">
+      <div style="font-size:18px">🎯</div>
+      <div style="flex:1">
+        <div style="font-size:12px;font-weight:700">สถิติของฉัน (${escHtml(me.nickname||me.realName||'ไม่ระบุ')} #${escHtml(me.id4)})</div>
+        <div style="font-size:11px;color:var(--muted)">ยอดขาย ฿${fmt(my.total)} · ${my.count} รายการ</div>
+      </div>
+      <div style="font-size:18px;font-weight:700;color:var(--accent)">${myIdx>=0?'#'+(myIdx+1):'ยังไม่ติดอันดับ'}</div>
+    </div>`;
+  }
+  el.innerHTML=html;
+}
+function feedBoardOpenDetail(key){
+  const ranked=feedBoardData(feedBoardGrain);
+  const u=ranked.find(x=>x.key===key);
+  if(!u){showToast('ลีดเดอร์บอร์ด','ไม่พบข้อมูล');return;}
+  const user=regFindById4(key)||regFindByEmail(key);
+  const nm=user?(user.nickname||user.realName||key):key;
+  const buckets=Object.keys(u.bucket).sort().reverse().slice(0,20);
+  const bodyEl=document.getElementById('ud-body');
+  document.getElementById('ud-title').textContent='📊 สถิติของ '+nm;
+  bodyEl.innerHTML=`<div><b>ยอดขายรวม:</b> ฿${fmt(u.total)} · ${u.count} รายการ</div>
+    <div><b>อันดับปัจจุบัน:</b> #${ranked.findIndex(x=>x.key===key)+1} / ${ranked.length}</div>
+    <div style="margin-top:10px;font-weight:600">รายละเอียดราย${feedBoardGrain==='year'?'ปี':feedBoardGrain==='month'?'เดือน':'วัน'}:</div>
+    <div style="max-height:40vh;overflow-y:auto;margin-top:6px;border:1px solid var(--border);border-radius:8px">
+    ${buckets.map(b=>`<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #f3f4f6"><span>${escHtml(b)}</span><b style="color:#065f46">฿${fmt(u.bucket[b])}</b></div>`).join('')}
+    </div>`;
+  document.getElementById('ov-user-detail').classList.add('open');
+}
+
+// REGISTRATION FLOW (multi-step)
+let regDraft={step:1,realName:'',nickname:'',avatarKind:'',avatarValue:'',selfie:''};
+function openRegister(){
+  regDraft={step:1,realName:'',nickname:'',avatarKind:'',avatarValue:'',selfie:''};
+  ['reg-fname','reg-lname','reg-nick'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('reg-avatar-preview').innerHTML='';
+  document.getElementById('reg-selfie-preview').innerHTML='';
+  regBuildAvatarGrid();
+  regShowStep(1);
+  document.getElementById('ov-register').classList.add('open');
+}
+function regBuildAvatarGrid(){
+  const el=document.getElementById('reg-avatar-grid');
+  el.innerHTML=AVATAR_PRESET.map(a=>`<button type="button" data-id="${a.id}" onclick="regPickAvatar('${a.id}')" style="aspect-ratio:1;font-size:22px;border:2px solid var(--border);border-radius:10px;background:#fff;cursor:pointer" title="${a.label}">${a.emoji}</button>`).join('');
+}
+function regPickAvatar(id){
+  const a=AVATAR_PRESET.find(x=>x.id===id);if(!a)return;
+  regDraft.avatarKind='preset';regDraft.avatarValue=a.emoji;
+  document.querySelectorAll('#reg-avatar-grid button').forEach(b=>{
+    b.style.borderColor=b.dataset.id===id?'var(--accent)':'var(--border)';
+    b.style.background=b.dataset.id===id?'#fff4e6':'#fff';
+  });
+  document.getElementById('reg-avatar-preview').innerHTML=`<div style="width:64px;height:64px;border-radius:50%;background:#fff4e6;border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;font-size:36px">${a.emoji}</div>`;
+}
+async function regHandlePhoto(input){
+  const f=input.files&&input.files[0];if(!f)return;
+  try{
+    const d=await compressImage(f,400,0.75);
+    regDraft.avatarKind='photo';regDraft.avatarValue=d;
+    document.querySelectorAll('#reg-avatar-grid button').forEach(b=>{b.style.borderColor='var(--border)';b.style.background='#fff';});
+    document.getElementById('reg-avatar-preview').innerHTML=`<img src="${escAttr(d)}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:2px solid var(--accent)"/>`;
+  }catch(e){alert('ไม่สามารถใช้รูปนี้ได้: '+(e.message||e));}
+  finally{input.value='';}
+}
+async function regHandleSelfie(input){
+  const f=input.files&&input.files[0];if(!f)return;
+  try{
+    const d=await compressImage(f,480,0.7);
+    regDraft.selfie=d;
+    document.getElementById('reg-selfie-preview').innerHTML=`<div style="text-align:center"><img src="${escAttr(d)}" style="width:120px;height:120px;border-radius:10px;object-fit:cover;border:2px solid #10b981"/><div style="color:#065f46;font-size:11px;font-weight:700;margin-top:6px">✅ ยืนยันใบหน้าแล้ว</div></div>`;
+  }catch(e){alert('ไม่สามารถใช้รูปนี้ได้: '+(e.message||e));}
+  finally{input.value='';}
+}
+function regShowStep(s){
+  regDraft.step=s;
+  document.querySelectorAll('#ov-register .reg-step').forEach(el=>el.style.display=(Number(el.dataset.step)===s)?'block':'none');
+  document.querySelectorAll('#reg-progress .reg-pd').forEach(el=>el.classList.toggle('active',Number(el.dataset.s)<=s));
+  document.getElementById('reg-step-title').textContent=`📝 ลงทะเบียนผู้ใช้ใหม่ (${s}/5)`;
+  document.getElementById('reg-back-btn').style.display=s>1?'inline-block':'none';
+  document.getElementById('reg-next-btn').textContent=s===5?'✅ ยืนยันการลงทะเบียน':'ถัดไป →';
+  if(s===5)regBuildSummary();
+}
+function regBuildSummary(){
+  const fn=document.getElementById('reg-fname').value.trim();
+  const ln=document.getElementById('reg-lname').value.trim();
+  const nk=document.getElementById('reg-nick').value.trim();
+  regDraft.realName=(fn+' '+ln).trim();regDraft.nickname=nk;
+  const avPreview=regDraft.avatarKind==='photo'
+    ?`<img src="${escAttr(regDraft.avatarValue)}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;vertical-align:middle"/>`
+    :regDraft.avatarKind==='preset'?`<span style="font-size:30px">${regDraft.avatarValue}</span>`:'—';
+  const slf=regDraft.selfie?`<img src="${escAttr(regDraft.selfie)}" style="width:50px;height:50px;border-radius:6px;object-fit:cover;vertical-align:middle"/>`:'—';
+  document.getElementById('reg-summary').innerHTML=
+    `<div><b>ชื่อจริง:</b> ${escHtml(regDraft.realName||'—')}</div>`+
+    `<div><b>ชื่อเล่น:</b> ${escHtml(regDraft.nickname||'—')}</div>`+
+    `<div><b>ไอคอน:</b> ${avPreview}</div>`+
+    `<div><b>เซลฟี่ยืนยัน:</b> ${slf}</div>`;
+}
+function regStep(dir){
+  const s=regDraft.step;
+  if(dir===-1){regShowStep(Math.max(1,s-1));return;}
+  if(s===1){
+    const fn=document.getElementById('reg-fname').value.trim();
+    const ln=document.getElementById('reg-lname').value.trim();
+    if(!fn||!ln){alert('กรุณากรอกชื่อและนามสกุลจริง');return;}
+  }
+  if(s===2){
+    const nk=document.getElementById('reg-nick').value.trim();
+    if(!nk){alert('กรุณาใส่ชื่อเล่น/ฉายา');return;}
+  }
+  if(s===3&&!regDraft.avatarKind){alert('กรุณาเลือกไอคอนหรืออัพโหลดรูป');return;}
+  if(s===4&&!regDraft.selfie){alert('กรุณาถ่ายเซลฟี่เพื่อยืนยัน');return;}
+  if(s===5){regSubmit();return;}
+  regShowStep(s+1);
+}
+function regSubmit(){
+  const id4=genRandomId4();
+  const u={
+    id4,realName:regDraft.realName,nickname:regDraft.nickname,
+    email:'',
+    picture:regDraft.avatarKind==='photo'?regDraft.avatarValue:'',
+    avatarEmoji:regDraft.avatarKind==='preset'?regDraft.avatarValue:'',
+    selfie:regDraft.selfie,
+    level:1,color:LEVEL_COLOR[1],
+    approved:false,pendingSince:Date.now(),createdAt:Date.now(),updatedAt:Date.now(),
+    extraRooms:[],botOptIn:true
+  };
+  regUsers.push(u);saveRegUsers();
+  try{auditAdd('register_pending','สมัคร: '+u.realName+' ('+u.nickname+') ID#'+u.id4);}catch(e){}
+  closeOv('ov-register');
+  document.getElementById('reg-pending-id').textContent='ID ชั่วคราว: #'+id4;
+  document.getElementById('ov-reg-pending').classList.add('open');
+}
+
+// ADMIN — pending registrations
+function renderRegPending(){
+  const box=document.getElementById('reg-pending-list');if(!box)return;
+  const pend=regUsers.filter(u=>!u.approved);
+  if(!pend.length){box.innerHTML=emptyMsg('ยังไม่มีสมาชิกรออนุมัติ');return;}
+  box.innerHTML=pend.map(u=>{
+    const av=userAvatarHtml(u,44);
+    const slf=u.selfie?`<img src="${escAttr(u.selfie)}" style="width:44px;height:54px;border-radius:6px;object-fit:cover;cursor:zoom-in" onclick="openLightbox('${escAttr(u.selfie)}')"/>`:'';
+    return `<div style="display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:#fff">
+      ${av}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:700">${escHtml(u.nickname)} <span style="color:var(--muted);font-weight:400">(${escHtml(u.realName)})</span></div>
+        <div style="font-size:10px;color:var(--muted)">ID #${escHtml(u.id4)} · สมัคร ${new Date(u.pendingSince||u.createdAt).toLocaleDateString('th-TH')}</div>
+      </div>
+      ${slf}
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <button class="exp-btn" style="background:#d1fae5;color:#065f46;border-color:#6ee7b7" onclick="approveUser('${u.id4}')">✓ อนุมัติ</button>
+        <button class="exp-btn" style="background:#fee2e2;color:#991b1b;border-color:#fca5a5" onclick="rejectUser('${u.id4}')">✕ ไม่รับ</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+async function approveUser(id4){
+  if(!(await requireAdmin('อนุมัติผู้ใช้งานใหม่')))return;
+  const u=regFindById4(id4);if(!u)return;
+  u.approved=true;u.approvedAt=Date.now();u.updatedAt=Date.now();saveRegUsers();
+  auditAdd('approve_user','ID #'+id4+' ('+u.nickname+')');
+  showToast('อนุมัติแล้ว','✅ '+u.nickname);
+  renderRegPending();renderIdList();
+}
+async function rejectUser(id4){
+  if(!(await requireAdmin('ไม่รับผู้ใช้งาน')))return;
+  if(!confirm('ไม่รับและลบข้อมูลผู้สมัคร ID #'+id4+' ?'))return;
+  markRegDeleted(id4);
+  regUsers=regUsers.filter(u=>u.id4!==id4);saveRegUsers();
+  auditAdd('reject_user','ID #'+id4);renderRegPending();renderIdList();
+}
+
+// ADMIN — ID list (all users, with level + room visibility)
+function renderIdList(){
+  const box=document.getElementById('id-list');if(!box)return;
+  if(!regUsers.length){box.innerHTML=emptyMsg('ยังไม่มีผู้ใช้');return;}
+  box.innerHTML=regUsers.map(u=>{
+    const av=userAvatarHtml(u,34);
+    const lv=u.level||1;
+    return `<div style="display:flex;gap:10px;align-items:center;padding:8px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:4px;background:#fff">
+      ${av}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:700">${escHtml(u.nickname||u.realName)} <span style="color:var(--muted);font-size:10px">#${escHtml(u.id4)}</span></div>
+        <div style="font-size:10px;color:var(--muted)">${escHtml(u.realName||'')} ${u.email?'· '+escHtml(u.email):''} ${!u.approved?'<span style="color:var(--warn);font-weight:700">· รอยืนยัน</span>':''}</div>
+      </div>
+      <span style="font-size:10px;font-weight:700;background:${LEVEL_COLOR[lv]};color:#fff;padding:2px 7px;border-radius:4px">L${lv} ${escHtml(LEVEL_NAME[lv])}</span>
+      <button class="exp-btn" onclick="openUserDetail('${u.id4}')">รายละเอียด</button>
+      <button class="exp-btn" onclick="setUserLevel('${u.id4}')">เลเวล</button>
+      <button class="exp-btn" onclick="setUserRooms('${u.id4}')">🗂️ ห้อง</button>
+      <button class="exp-btn" style="color:var(--danger)" onclick="deleteUser('${u.id4}')">✕</button>
+    </div>`;
+  }).join('');
+}
+async function setUserLevel(id4){
+  if(!(await requireAdmin('ตั้งค่าระดับเลเวล')))return;
+  const u=regFindById4(id4);if(!u)return;
+  const raw=prompt('ระดับใหม่ (1-5):\n1 = เด็กฝึกงาน\n2 = ผู้อยู่รอด\n3 = ผู้ฝึกสอน\n4 = Manager (รหัส SS000)\n5 = Admin',String(u.level||1));
+  if(raw===null)return;
+  const lv=parseInt(raw,10);
+  if(!(lv>=1&&lv<=5)){alert('ใส่ 1-5 เท่านั้น');return;}
+  u.level=lv;u.color=LEVEL_COLOR[lv];u.updatedAt=Date.now();saveRegUsers();
+  auditAdd('set_user_level','ID #'+id4+' → L'+lv);
+  renderIdList();
+}
+async function setUserRooms(id4){
+  if(!(await requireAdmin('ตั้งค่าการมองเห็นห้อง')))return;
+  const u=regFindById4(id4);if(!u)return;
+  const viewable=rooms.filter(r=>r.isCategory).map(r=>r.id+' · '+r.name+' (L'+roomLevel(r)+')').join('\n');
+  const cur=(u.extraRooms||[]).join(',');
+  const raw=prompt('ID ห้องที่อนุญาตเพิ่มเติม (คั่นด้วย , ) — ตัวอย่าง id:\n'+viewable,cur);
+  if(raw===null)return;
+  u.extraRooms=raw.split(',').map(s=>s.trim()).filter(Boolean);u.updatedAt=Date.now();saveRegUsers();
+  auditAdd('set_user_rooms','ID #'+id4+' rooms='+u.extraRooms.join(','));
+  renderIdList();
+}
+async function deleteUser(id4){
+  if(!(await requireAdmin('ลบผู้ใช้',true)))return;
+  const u=regFindById4(id4);if(!u)return;
+  if(!confirm('ลบผู้ใช้ #'+id4+' ('+u.nickname+')?'))return;
+  markRegDeleted(id4);
+  regUsers=regUsers.filter(x=>x.id4!==id4);saveRegUsers();
+  auditAdd('delete_user','ID #'+id4);renderIdList();
+}
+async function openAddIdManually(){
+  if(!(await requireAdmin('เพิ่ม ID ผู้ใช้')))return;
+  const name=prompt('ชื่อจริง (ชื่อ นามสกุล):');
+  if(!name||!name.trim())return;
+  const nick=prompt('ชื่อเล่น/ฉายา (แสดงในแอฟ):',name);
+  if(!nick||!nick.trim())return;
+  const id4=genRandomId4();
+  const u={id4,realName:name.trim(),nickname:nick.trim(),email:'',picture:'',avatarEmoji:'👤',selfie:'',
+    level:1,color:LEVEL_COLOR[1],approved:true,createdAt:Date.now(),updatedAt:Date.now(),extraRooms:[],botOptIn:true};
+  regUsers.push(u);saveRegUsers();
+  auditAdd('add_user_manual','ID #'+id4+' '+name);
+  renderIdList();showToast('เพิ่ม ID','✅ #'+id4);
+}
+function openUserDetail(id4){
+  const u=regFindById4(id4);if(!u)return;
+  document.getElementById('ud-title').textContent='🆔 รายละเอียด #'+u.id4;
+  const av=userAvatarHtml(u,80);
+  const slf=u.selfie?`<img src="${escAttr(u.selfie)}" style="width:120px;height:140px;border-radius:8px;object-fit:cover;cursor:zoom-in" onclick="openLightbox('${escAttr(u.selfie)}')"/>`:'<span style="color:var(--muted)">ไม่มีเซลฟี่</span>';
+  const codesLine=u.level===4?'<div><b>รหัสประจำตำแหน่ง (Manager):</b> SS000</div>':(u.level===5?'<div><b>รหัสแอดมิน:</b> Somsod12345</div>':'');
+  document.getElementById('ud-body').innerHTML=`
+    <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:10px">
+      <div>${av}<div style="margin-top:6px;font-size:14px;font-weight:700;text-align:center">${escHtml(u.nickname||u.realName)}</div></div>
+      <div style="flex:1;font-size:12px;line-height:1.8">
+        <div><b>ID:</b> #${escHtml(u.id4)}</div>
+        <div><b>ชื่อจริง:</b> ${escHtml(u.realName||'-')}</div>
+        <div><b>อีเมล:</b> ${escHtml(u.email||'-')}</div>
+        <div><b>เลเวล:</b> L${u.level} ${escHtml(LEVEL_NAME[u.level]||'')}</div>
+        <div><b>สถานะ:</b> ${u.approved?'✅ อนุมัติแล้ว':'⏳ รออนุมัติ'}</div>
+        <div><b>สมัครเมื่อ:</b> ${new Date(u.createdAt).toLocaleString('th-TH')}</div>
+        <div><b>ห้องที่เข้าเพิ่มเติมได้:</b> ${(u.extraRooms||[]).join(', ')||'—'}</div>
+        <div><b>บอทเก็บข้อมูล:</b> ${u.botOptIn?'✅ เปิด':'ปิด'}</div>
+        ${codesLine}
+      </div>
+    </div>
+    <div><b>เซลฟี่ยืนยัน:</b></div>
+    <div style="margin-top:6px">${slf}</div>`;
+  document.getElementById('ov-user-detail').classList.add('open');
+}
+
+// ADMIN — Chat archive (password-gated display)
+function openChatArchive(){
+  document.getElementById('ar-gate').style.display='block';
+  document.getElementById('ar-body').style.display='none';
+  const inp=document.getElementById('ar-pass');if(inp)inp.value='';
+  document.getElementById('ar-err').style.display='none';
+  document.getElementById('ov-chat-archive').classList.add('open');
+  setTimeout(()=>inp&&inp.focus(),60);
+}
+async function archiveUnlock(){
+  const inp=document.getElementById('ar-pass');
+  const v=(inp&&inp.value||'').trim();
+  if(v!==CHAT_ARCHIVE_CODE){document.getElementById('ar-err').style.display='block';if(inp){inp.value='';inp.focus();}return;}
+  document.getElementById('ar-gate').style.display='none';
+  const body=document.getElementById('ar-body');body.style.display='block';
+  body.innerHTML=emptyMsg('กำลังโหลดประวัติแชท...','20px');
+  const arr=mergeChatMessages(loadChatArchive(),await loadRemoteChatArchive());
+  if(!arr.length){body.innerHTML=emptyMsg('ยังไม่มีประวัติแชท','20px');return;}
+  const sorted=[...arr].sort((a,b)=>(b.ts||0)-(a.ts||0));
+  body.innerHTML=sorted.slice(0,500).map(m=>{
+    const t=new Date(m.ts).toLocaleString('th-TH');
+    return `<div style="border-bottom:1px solid #f3f4f6;padding:6px 10px;font-size:12px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <b>${escHtml(m.sender||'?')}</b>
+        ${m.id4?`<span style="font-size:9px;background:#f3f4f6;padding:1px 4px;border-radius:3px">#${escHtml(m.id4)}</span>`:''}
+        <span style="color:var(--muted);font-size:10px">${escHtml(m.source||'')} · ${t}</span>
+      </div>
+      <div style="margin-top:3px;white-space:pre-wrap;word-break:break-word">${escHtml(m.text||'')}</div>
+    </div>`;
+  }).join('');
+}
+
+// ADMIN — Unit Conversion rules
+const UNIT_MAIN_ALIAS_KEY='org_unit_main_alias';
+function loadUnitMainAlias(){return getLS(UNIT_MAIN_ALIAS_KEY,null)||{alias:'น้ำส้ม',name:'น้ำส้มStock'};}
+function saveUnitMainAlias(){
+  const alias=(document.getElementById('unit-main-alias')?.value||'').trim();
+  const name=(document.getElementById('unit-main-name')?.value||'').trim();
+  saveLS(UNIT_MAIN_ALIAS_KEY,{alias,name});
+}
+function hydrateUnitMainAlias(){
+  const a=loadUnitMainAlias();
+  const ia=document.getElementById('unit-main-alias'),ib=document.getElementById('unit-main-name');
+  if(ia&&!ia.value)ia.value=a.alias||'';
+  if(ib&&!ib.value)ib.value=a.name||'';
+}
+function saveUnitRules(){saveLS('org_unit_rules',unitRules);scheduleAppStatePush('unitRules');}
+function renderUnitRules(){
+  hydrateUnitMainAlias();
+  const box=document.getElementById('unit-rule-list');if(!box)return;
+  if(!unitRules.length){box.innerHTML=emptyMsg('ยังไม่มีกฎแลกเปลี่ยน');return;}
+  box.innerHTML=unitRules.map(r=>{
+    const tn=r.toName||r.fromName||'';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:4px;background:#fff;font-size:12px">
+      <div style="flex:1;display:flex;flex-wrap:wrap;gap:4px;align-items:center">
+        <b>${escHtml(r.fromName||'')}</b>
+        <span style="color:var(--muted)">${fmt(r.fromQty)}</span>
+        <span>${escHtml(r.fromUnit||'')}</span>
+        <span style="margin:0 6px;font-weight:700">=</span>
+        <b>${escHtml(tn)}</b>
+        <span style="color:var(--muted)">${fmt(r.toQty)}</span>
+        <span>${escHtml(r.toUnit||'')}</span>
+      </div>
+      <button class="exp-btn" onclick="editUnitRule('${r.id}')">✎</button>
+      <button class="exp-btn" style="color:var(--danger)" onclick="delUnitRule('${r.id}')">✕</button>
+    </div>`;
+  }).join('');
+}
+async function openAddUnitRule(){
+  if(!(await requireAdmin('เพิ่มกฎหน่วยแลกเปลี่ยน')))return;
+  openUnitRuleDialog(null);
+}
+async function editUnitRule(id){
+  if(!(await requireAdmin('แก้ไขกฎหน่วย')))return;
+  const r=unitRules.find(x=>x.id===id);if(!r)return;
+  openUnitRuleDialog(r);
+}
+// 7-field unit-conversion popup: fromName | fromQty | fromUnit | = | toName | toQty | toUnit
+function openUnitRuleDialog(existing){
+  const a=loadUnitMainAlias();
+  const defName=(a&&a.name)||'น้ำส้มStock';
+  const seed=existing||{fromName:defName,fromQty:1,fromUnit:'ถัง',toName:defName,toQty:19000,toUnit:'ml'};
+  let ov=document.getElementById('ov-unit-rule');
+  if(!ov){
+    ov=document.createElement('div');ov.className='overlay';ov.id='ov-unit-rule';
+    ov.innerHTML=`<div class="modal" style="max-width:520px">
+      <div class="mh"><span id="ur-title">เพิ่มกฎแลกเปลี่ยน</span><span class="mx" onclick="document.getElementById('ov-unit-rule').classList.remove('open')">×</span></div>
+      <div style="padding:14px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px">รูปแบบ: <b>ชื่อสินค้า | จำนวน | หน่วย | = | ชื่อสินค้า | จำนวน | หน่วย</b></div>
+        <div style="display:grid;grid-template-columns:1.5fr .8fr .8fr auto 1.5fr .8fr .8fr;gap:6px;align-items:center">
+          <input id="ur-fromName" placeholder="น้ำส้มStock" style="padding:8px;border:1px solid var(--border);border-radius:6px;font-size:12px"/>
+          <input id="ur-fromQty" type="number" step="any" placeholder="1" style="padding:8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:center"/>
+          <input id="ur-fromUnit" list="dl-units" placeholder="ถัง" style="padding:8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:center"/>
+          <span style="font-weight:800;color:var(--accent);text-align:center">=</span>
+          <input id="ur-toName" placeholder="น้ำส้มStock" style="padding:8px;border:1px solid var(--border);border-radius:6px;font-size:12px"/>
+          <input id="ur-toQty" type="number" step="any" placeholder="19000" style="padding:8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:center"/>
+          <input id="ur-toUnit" list="dl-units" placeholder="ml" style="padding:8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:center"/>
+        </div>
+        <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:12px">
+          <button class="exp-btn" onclick="document.getElementById('ov-unit-rule').classList.remove('open')">ยกเลิก</button>
+          <button class="mok" onclick="submitUnitRuleDialog()">บันทึก</button>
+        </div>
+      </div>
+    </div>`;
+    document.body.appendChild(ov);
+  }
+  ov.querySelector('#ur-title').textContent=existing?'แก้ไขกฎแลกเปลี่ยน':'เพิ่มกฎแลกเปลี่ยน';
+  ov.dataset.editId=existing?existing.id:'';
+  ov.querySelector('#ur-fromName').value=seed.fromName||'';
+  ov.querySelector('#ur-fromQty').value=seed.fromQty||'';
+  ov.querySelector('#ur-fromUnit').value=seed.fromUnit||'';
+  ov.querySelector('#ur-toName').value=seed.toName||defName;
+  ov.querySelector('#ur-toQty').value=seed.toQty||'';
+  ov.querySelector('#ur-toUnit').value=seed.toUnit||'';
+  ov.classList.add('open');
+}
+function submitUnitRuleDialog(){
+  const ov=document.getElementById('ov-unit-rule');if(!ov)return;
+  const fromName=ov.querySelector('#ur-fromName').value.trim();
+  const fromQty=Number(ov.querySelector('#ur-fromQty').value)||0;
+  const fromUnit=ov.querySelector('#ur-fromUnit').value.trim();
+  const toName=ov.querySelector('#ur-toName').value.trim();
+  const toQty=Number(ov.querySelector('#ur-toQty').value)||0;
+  const toUnit=ov.querySelector('#ur-toUnit').value.trim();
+  if(!fromName||!toName){alert('กรุณากรอกชื่อสินค้าทั้งสองฝั่ง');return;}
+  if(!fromQty||!toQty){alert('จำนวนต้องมากกว่า 0 ทั้งสองฝั่ง');return;}
+  const editId=ov.dataset.editId;
+  if(editId){
+    const r=unitRules.find(x=>x.id===editId);
+    if(r){r.fromName=fromName;r.fromQty=fromQty;r.fromUnit=fromUnit;r.toName=toName;r.toQty=toQty;r.toUnit=toUnit;}
+  }else{
+    unitRules.push({id:'u_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),fromName,fromQty,fromUnit,toName,toQty,toUnit});
+    auditAdd('add_unit_rule',fromName+' → '+toName);
+  }
+  saveUnitRules();renderUnitRules();
+  ov.classList.remove('open');
+}
+async function delUnitRule(id){
+  if(!(await requireAdmin('ลบกฎหน่วย',true)))return;
+  if(!confirm('ลบกฎนี้?'))return;
+  unitRules=unitRules.filter(x=>x.id!==id);saveUnitRules();renderUnitRules();
+}
+
+// ADMIN — Orange-juice Stock Volume
+function saveStockVol(){
+  saveLS('org_stock_vol',stockVol);
+  scheduleAppStatePush('stockVol');
+  // Keep the ROOM somsod juice widget in sync with every stock change
+  try{renderFeedStatsStrip();}catch(e){}
+}
+function renderStockBuckets(){
+  const box=document.getElementById('stock-bucket-list');if(!box)return;
+  if(!stockVol.items.length){box.innerHTML=emptyMsg('ยังไม่มีถังสต๊อก — กด "+ เพิ่มถังสต๊อก"');}
+  else{
+    box.innerHTML=stockVol.items.map(it=>{
+      const pct=it.currentMl>0?Math.round((it.currentMl/(it.capacityMl||800000))*100):0;
+      const low=it.threshold&&it.currentMl<=it.threshold;
+      return `<div style="border:1px solid ${low?'#fca5a5':'var(--border)'};border-radius:8px;padding:10px 12px;margin-bottom:6px;background:${low?'#fef2f2':'#fff'}">
+        <div style="display:flex;align-items:center;gap:8px">
+          <b>${escHtml(it.name||'ถังน้ำส้ม')}</b>
+          ${low?'<span style="font-size:10px;color:#991b1b;background:#fee2e2;padding:2px 6px;border-radius:4px;font-weight:700">⚠️ ใกล้หมด</span>':''}
+          <div style="margin-left:auto;font-size:13px;font-weight:700;color:#065f46">${fmt(it.currentMl)} ml</div>
+        </div>
+        <div style="background:#e5e7eb;height:8px;border-radius:4px;margin-top:6px;overflow:hidden">
+          <div style="background:${low?'#ef4444':'linear-gradient(to right,#f97316,#ffb347)'};height:100%;width:${pct}%"></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px;display:flex;justify-content:space-between">
+          <span>ความจุ ${fmt(it.capacityMl||800000)} ml · ${pct}%</span>
+          <span>เตือนที่ ${fmt(it.threshold||0)} ml</span>
+        </div>
+        <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap">
+          <button class="exp-btn" style="background:#d1fae5;color:#065f46" onclick="stockBrew('${it.id}')">+ 1 หม้อ (800,000 ml)</button>
+          <button class="exp-btn" onclick="stockSellManual('${it.id}')">− ขาย (ขวด × จำนวน)</button>
+          <button class="exp-btn" onclick="stockSetThreshold('${it.id}')">ตั้งเตือน</button>
+          <button class="exp-btn" onclick="stockEditBucket('${it.id}')">✎</button>
+          <button class="exp-btn" style="color:var(--danger)" onclick="stockDelBucket('${it.id}')">✕</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  const hist=document.getElementById('stock-history-list');
+  if(hist){
+    const rows=(stockVol.history||[]).slice(-80).reverse();
+    if(!rows.length)hist.innerHTML='<div style="font-size:11px;color:var(--muted)">ยังไม่มีประวัติ</div>';
+    else hist.innerHTML=rows.map(h=>{
+      const it=stockVol.items.find(x=>x.id===h.bucketId);
+      return `<div style="display:flex;gap:6px;font-size:11px;padding:3px 6px;border-bottom:1px dashed #f3f4f6">
+        <span style="color:var(--muted)">${new Date(h.ts).toLocaleString('th-TH')}</span>
+        <span style="flex:1">${escHtml(it?it.name:'')} · ${escHtml(h.note||'')}</span>
+        <b style="color:${h.delta>=0?'#065f46':'#991b1b'}">${h.delta>=0?'+':''}${fmt(h.delta)} ml</b>
+      </div>`;
+    }).join('');
+  }
+}
+async function openAddStockBucket(){
+  if(!(await requireAdmin('เพิ่มถังสต๊อก')))return;
+  const name=prompt('ชื่อถังสต๊อก (เช่น น้ำส้มสด):','น้ำส้มสด');
+  if(!name||!name.trim())return;
+  const cap=Number(prompt('ความจุต่อหม้อ (ml):','800000'))||800000;
+  const th=Number(prompt('แจ้งเตือนเมื่อต่ำกว่า (ml):','100000'))||0;
+  stockVol.items.push({id:'sv_'+Date.now(),name:name.trim(),capacityMl:cap,currentMl:0,threshold:th});
+  saveStockVol();auditAdd('add_stock_bucket',name);renderStockBuckets();
+}
+async function stockBrew(bid){
+  if(!(await requireAdmin('ผลิตน้ำส้ม 1 หม้อ')))return;
+  const it=stockVol.items.find(x=>x.id===bid);if(!it)return;
+  const add=it.capacityMl||800000;
+  it.currentMl=(it.currentMl||0)+add;
+  stockVol.history.push({ts:Date.now(),bucketId:bid,delta:add,note:'ผลิต 1 หม้อ'});
+  saveStockVol();renderStockBuckets();
+}
+async function stockSellManual(bid){
+  if(!(await requireAdmin('บันทึกขายออก')))return;
+  const it=stockVol.items.find(x=>x.id===bid);if(!it)return;
+  const size=Number(prompt('ขนาดขวด (ml):','220'))||0;
+  const qty=Number(prompt('จำนวนขวด:','0'))||0;
+  if(!size||!qty)return;
+  const used=size*qty;
+  it.currentMl=Math.max(0,(it.currentMl||0)-used);
+  stockVol.history.push({ts:Date.now(),bucketId:bid,delta:-used,note:'ขาย '+size+'ml × '+qty+' ขวด'});
+  saveStockVol();renderStockBuckets();
+  if(it.threshold&&it.currentMl<=it.threshold){showToast('⚠️ สต๊อกใกล้หมด',it.name+' เหลือ '+fmt(it.currentMl)+' ml');}
+}
+async function stockSetThreshold(bid){
+  if(!(await requireAdmin('ตั้งเตือน')))return;
+  const it=stockVol.items.find(x=>x.id===bid);if(!it)return;
+  const raw=prompt('แจ้งเตือนเมื่อต่ำกว่า (ml):',String(it.threshold||0));
+  if(raw===null)return;
+  it.threshold=Number(raw)||0;saveStockVol();renderStockBuckets();
+}
+async function stockEditBucket(bid){
+  if(!(await requireAdmin('แก้ไขถังสต๊อก')))return;
+  const it=stockVol.items.find(x=>x.id===bid);if(!it)return;
+  const nm=prompt('ชื่อ:',it.name);if(nm===null)return;
+  const cap=Number(prompt('ความจุ (ml):',it.capacityMl))||it.capacityMl;
+  const cur=Number(prompt('ปริมาณปัจจุบัน (ml):',it.currentMl))||0;
+  it.name=nm;it.capacityMl=cap;it.currentMl=cur;
+  saveStockVol();renderStockBuckets();
+}
+async function stockDelBucket(bid){
+  if(!(await requireAdmin('ลบถังสต๊อก',true)))return;
+  if(!confirm('ลบถังสต๊อก?'))return;
+  stockVol.items=stockVol.items.filter(x=>x.id!==bid);saveStockVol();renderStockBuckets();
+}
+
+function selectRoom(id){
+  const r=findRoom(id);if(!r||!isSellable(r))return;
+  currentRoom=id;
+  r.unread=0;saveRooms();
+  document.getElementById('ch-icon').textContent=r.icon||(r.isCategory?LEVEL_ICONS[roomLevel(r)]:'🏪');
+  document.getElementById('chn').textContent=r.name;
+  // Breadcrumb — parent chain
+  const crumb=[];let cur=r;
+  while(cur.parentId){const p=findRoom(cur.parentId);if(!p)break;crumb.unshift(p.name);cur=p;}
+  const chs=document.getElementById('chs');
+  if(chs)chs.textContent=crumb.join(' › ')||'ห้องขาย';
+  document.getElementById('inarea').style.display='block';
+  renderRoomInfoBar(r);
+  saleQueue=[];
+  renderSaleQueue();
+  const d=document.getElementById('sl-date');
+  if(d&&!d.value)d.value=new Date().toISOString().slice(0,10);
+  document.getElementById('sl-note').value='';
+  renderSales();renderRooms();closeSidebar();
+}
+// L3 (sellable category) click: jump to chat app + select as sales room
+async function selectSellableNode(id){
+  const r=findRoom(id);if(!r)return;
+  if(!Array.isArray(r.sales)){r.sales=[];saveRooms();}
+  if(!r.customer){r.customer={};saveRooms();}
+  if(currentApp!=='chat')await switchApp('chat');
+  selectRoom(id);
+}
+function renderRoomInfoBar(r){
+  const bar=document.getElementById('room-info');
+  if(!bar)return;
+  const c=r.customer||{};
+  const parts=[];
+  if(c.name)parts.push(`<span><span class="ci-label">ชื่อ:</span> ${escHtml(c.name)}</span>`);
+  if(c.phone)parts.push(`<span><span class="ci-label">โทร:</span> ${escHtml(c.phone)}</span>`);
+  if(c.company)parts.push(`<span><span class="ci-label">บริษัท:</span> ${escHtml(c.company)}</span>`);
+  if(c.branch)parts.push(`<span><span class="ci-label">สาขา:</span> ${escHtml(c.branch)}</span>`);
+  if(c.address)parts.push(`<span><span class="ci-label">ที่อยู่:</span> ${escHtml(c.address)}</span>`);
+  if(!parts.length){bar.style.display='none';return;}
+  bar.innerHTML=`<div class="ci-row">${parts.join(' · ')}</div>`;
+  bar.style.display='block';
+}
+// ── CUSTOMER PICKER removed — sales rooms keep only their own customer record (r.customer).
+
+// Collect IDs of a node and all descendants
+function collectSubtree(id){
+  const out=[id];
+  const stack=[id];
+  while(stack.length){
+    const cur=stack.pop();
+    rooms.filter(r=>r.parentId===cur).forEach(c=>{out.push(c.id);stack.push(c.id);});
+  }
+  return out;
+}
+async function delRoomNode(id){
+  if(!(await requirePerm('edit_room','ลบรายการในลำดับชั้น')))return;
+  const r=findRoom(id);if(!r)return;
+  const subtree=collectSubtree(id);
+  const leafCount=subtree.filter(sid=>{const x=findRoom(sid);return x&&isSellable(x);}).length;
+  const msg=subtree.length>1
+    ? `ลบ "${r.name}"?\nรายการลูกที่อยู่ข้างในจะถูกลบทั้งหมด (ทั้งหมด ${subtree.length} รายการ, ห้องขาย ${leafCount} ห้อง)`
+    : `ลบ "${r.name}"? (ประวัติการขายในห้องนี้จะหายไป)`;
+  if(!confirm(msg))return;
+  rememberDeletedRoomIds(subtree);
+  if(fbOn){
+    subtree.forEach(sid=>{
+      fbSet('rooms/'+sid,null).catch(()=>{});
+      fbSet('messages/'+sid,null).catch(()=>{});
+      fbSet('sales/'+sid,null).catch(()=>{});
+    });
+  }
+  rooms=rooms.filter(x=>!subtree.includes(x.id));
+  saveRooms();
+  auditAdd('delete_room_node',LEVEL_LABELS[roomLevel(r)]+': '+r.name);
+  if(currentRoom&&subtree.includes(currentRoom)){
+    currentRoom=null;
+    const first=rooms.find(x=>isSellable(x));
+    if(first)selectRoom(first.id);
+    else{document.getElementById('inarea').style.display='none';document.getElementById('msgs').innerHTML='<div class="chat-empty"><div class="ei">🛒</div><p>เลือกห้องขาย / กลุ่มลูกค้า</p></div>';}
+  }
+  renderRooms();
+}
+// Legacy aliases
+async function delRoom(id){return delRoomNode(id);}
+async function delCategory(id){return delRoomNode(id);}
+
+// ── ADD / EDIT DIALOGS
+function _setupRoomModalBase(){
+  document.getElementById('m-emojis').innerHTML=EMOJIS.map((e,i)=>`<span class="eo${i===0?' sel':''}" onclick="pickEmoji('${e}',this)">${e}</span>`).join('');
+  document.getElementById('m-colors').innerHTML=COLORS.map((c,i)=>`<div class="cdot${i===0?' sel':''}" style="background:${c}" onclick="pickColor('${c}',this)"></div>`).join('');
+  selEmoji=EMOJIS[0];selColor=COLORS[0];
+  ['m-rname','m-cu-name','m-cu-phone','m-cu-address','m-cu-company','m-cu-branch'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('m-rid').value='';
+  document.getElementById('m-rparent').value='';
+  const lv=document.getElementById('m-rlevel');if(lv)lv.value='';
+}
+// Top-level (L1) add
+async function openAddCategory(){
+  if(!(await requirePerm('edit_room','เพิ่ม'+LEVEL_LABELS[1])))return;
+  _setupRoomModalBase();
+  document.getElementById('m-rmode').value='category';
+  document.getElementById('m-rlevel').value='1';
+  document.getElementById('m-rparent').value='';
+  document.getElementById('ov-room-title').textContent='➕ สร้าง'+LEVEL_LABELS[1]+'ใหม่';
+  document.getElementById('m-rname').placeholder='ชื่อ'+LEVEL_LABELS[1]+' เช่น ลูกค้าทั่วไป, ลูกค้าประจำ';
+  document.getElementById('m-cust-fields').style.display='none';
+  selEmoji=LEVEL_ICONS[1];selColor=LEVEL_COLORS[1];
+  document.getElementById('ov-room').classList.add('open');
+}
+// Add a child under a parent (auto-detect level)
+async function openAddChildNode(parentId){
+  const parent=findRoom(parentId);if(!parent)return;
+  const childLv=roomLevel(parent)+1;
+  if(childLv>4){alert('ถึงลำดับชั้นล่างสุดแล้ว (ลูกค้า)');return;}
+  const childLabel=LEVEL_LABELS[childLv];
+  if(!(await requirePerm('edit_room','เพิ่ม'+childLabel)))return;
+  _setupRoomModalBase();
+  document.getElementById('m-rmode').value=(childLv===4)?'room':'category';
+  document.getElementById('m-rlevel').value=String(childLv);
+  document.getElementById('m-rparent').value=parentId;
+  document.getElementById('ov-room-title').textContent='➕ เพิ่ม'+childLabel+'ใน: '+parent.name;
+  document.getElementById('m-rname').placeholder='ชื่อ'+childLabel;
+  document.getElementById('m-cust-fields').style.display=isSalesLevel(childLv)?'block':'none';
+  selEmoji=LEVEL_ICONS[childLv];selColor=LEVEL_COLORS[childLv];
+  document.getElementById('ov-room').classList.add('open');
+}
+// Legacy: add a sales-room leaf directly under a level-1 category (skips L2/L3)
+async function openAddRoomInCat(catId){
+  const parent=findRoom(catId);
+  if(!parent)return;
+  // If parent is level < 3, just prompt for immediate next level; if parent is level 3, add leaf
+  return openAddChildNode(catId);
+}
+async function openEditRoomNode(id){
+  const r=findRoom(id);if(!r)return;
+  const lv=roomLevel(r);
+  if(!(await requirePerm('edit_room','แก้ไข'+LEVEL_LABELS[lv])))return;
+  _setupRoomModalBase();
+  document.getElementById('m-rmode').value=(lv===4)?'room':'category';
+  document.getElementById('m-rlevel').value=String(lv);
+  document.getElementById('m-rid').value=id;
+  document.getElementById('m-rparent').value=r.parentId||'';
+  document.getElementById('ov-room-title').textContent='✎ แก้ไข'+LEVEL_LABELS[lv]+': '+r.name;
+  document.getElementById('m-rname').value=r.name;
+  if(isSalesLevel(lv)){
+    const c=r.customer||{};
+    document.getElementById('m-cu-name').value=c.name||'';
+    document.getElementById('m-cu-phone').value=c.phone||'';
+    document.getElementById('m-cu-address').value=c.address||'';
+    document.getElementById('m-cu-company').value=c.company||'';
+    document.getElementById('m-cu-branch').value=c.branch||'';
+  }
+  document.getElementById('m-cust-fields').style.display=isSalesLevel(lv)?'block':'none';
+  selEmoji=r.icon;selColor=r.color;
+  document.querySelectorAll('#m-emojis .eo').forEach(el=>{if(el.textContent===r.icon){el.classList.add('sel');}else el.classList.remove('sel');});
+  document.querySelectorAll('#m-colors .cdot').forEach(el=>{if(el.style.background&&rgbMatch(el.style.background,r.color))el.classList.add('sel');else el.classList.remove('sel');});
+  document.getElementById('ov-room').classList.add('open');
+}
+// Legacy aliases
+async function openEditCategory(id){return openEditRoomNode(id);}
+async function openEditCurrentRoom(){
+  if(!currentRoom)return;
+  return openEditRoomNode(currentRoom);
+}
+function rgbMatch(a,b){
+  const norm=s=>{s=(s||'').toLowerCase().replace(/\s/g,'');if(s.startsWith('#'))return s;const m=s.match(/rgb\((\d+),(\d+),(\d+)\)/);if(m){return'#'+[m[1],m[2],m[3]].map(n=>(+n).toString(16).padStart(2,'0')).join('');}return s;};
+  return norm(a)===norm(b);
+}
+function pickEmoji(e,el){selEmoji=e;document.querySelectorAll('#m-emojis .eo').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');}
+function pickColor(c,el){selColor=c;document.querySelectorAll('#m-colors .cdot').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');}
+// Legacy no-op (kept so old references don't break)
+function openAddRoom(){openAddCategory();}
+async function doAddRoom(){doSaveRoom();}
+async function doSaveRoom(){
+  const mode=document.getElementById('m-rmode').value;
+  const lvStr=document.getElementById('m-rlevel')?.value||'';
+  const level=parseInt(lvStr||(mode==='category'?'1':'4'),10);
+  const editId=document.getElementById('m-rid').value;
+  const parentId=document.getElementById('m-rparent').value||'';
+  const name=document.getElementById('m-rname').value.trim();
+  if(!name){alert('กรุณากรอกชื่อ');return;}
+  if(editId){
+    const r=findRoom(editId);if(!r){closeOv('ov-room');return;}
+    const before={name:r.name,icon:r.icon,color:r.color,customer:r.customer};
+    r.name=name;r.icon=selEmoji;r.color=selColor;
+    if(isSalesLevel(level)){
+      r.customer={
+        name:document.getElementById('m-cu-name').value.trim(),
+        phone:document.getElementById('m-cu-phone').value.trim(),
+        address:document.getElementById('m-cu-address').value.trim(),
+        company:document.getElementById('m-cu-company').value.trim(),
+        branch:document.getElementById('m-cu-branch').value.trim()
+      };
+    }
+    saveRooms();
+    if(fbOn)fbPatch('rooms',{[editId]:{name:r.name,icon:r.icon,color:r.color,parentId:r.parentId||null,level:roomLevel(r),isCategory:!!r.isCategory,customer:r.customer||null}}).catch(()=>{});
+    auditAdd('edit_room_node',LEVEL_LABELS[level]+': '+name,JSON.stringify(before));
+    closeOv('ov-room');renderRooms();
+    if(currentRoom===editId)selectRoom(editId);
+    return;
+  }
+  if(level<4){
+    const id='node_'+level+'_'+Date.now();
+    const node={id,name,icon:selEmoji,color:selColor,isCategory:true,level};
+    if(parentId)node.parentId=parentId;
+    // Any non-leaf level configured as sales is both a category and a sales room.
+    if(isSalesLevel(level)){
+      node.sales=[];
+      node.customer={
+        name:document.getElementById('m-cu-name')?.value.trim()||'',
+        phone:document.getElementById('m-cu-phone')?.value.trim()||'',
+        address:document.getElementById('m-cu-address')?.value.trim()||'',
+        company:document.getElementById('m-cu-company')?.value.trim()||'',
+        branch:document.getElementById('m-cu-branch')?.value.trim()||''
+      };
+    }
+    rooms.push(node);
+    saveRooms();
+    if(fbOn)fbPatch('rooms',{[id]:{name,icon:selEmoji,color:selColor,parentId:parentId||null,level,isCategory:true,customer:node.customer||null}}).catch(()=>{});
+    auditAdd('add_room_node',LEVEL_LABELS[level]+': '+name);
+  }else{
+    const id='r_'+Date.now();
+    const cust={
+      name:document.getElementById('m-cu-name').value.trim(),
+      phone:document.getElementById('m-cu-phone').value.trim(),
+      address:document.getElementById('m-cu-address').value.trim(),
+      company:document.getElementById('m-cu-company').value.trim(),
+      branch:document.getElementById('m-cu-branch').value.trim()
+    };
+    rooms.push({id,parentId,level:4,name,icon:selEmoji,color:selColor,customer:cust,sales:[],msgs:[],unread:0});
+    saveRooms();
+    if(fbOn)fbPatch('rooms',{[id]:{name,icon:selEmoji,color:selColor,parentId:parentId||null,level:4,isCategory:false,customer:cust}}).catch(()=>{});
+    auditAdd('add_room','ห้องขาย: '+name+(cust.name?' (ลูกค้า: '+cust.name+')':''));
+    closeOv('ov-room');renderRooms();selectRoom(id);
+    return;
+  }
+  closeOv('ov-room');renderRooms();
+}
+
+// SALES ROOMS — MULTI-PRODUCT QUEUE
+function getRoomSales(r){
+  if(!r)return [];
+  // Categories aren't sellable (except L3 which is both category + sellable per updated spec)
+  if(!isSellable(r))return [];
+  if(!Array.isArray(r.sales))r.sales=[];
+  return r.sales;
+}
+function renderSaleQueue(){
+  const box=document.getElementById('pq-list');
+  if(!box)return;
+  if(!saleQueue.length){
+    box.innerHTML='<div class="pq-empty">ยังไม่ได้เพิ่มสินค้า — กด <b>“+ เพิ่มสินค้า”</b> ด้านล่าง</div>';
+    document.getElementById('pq-total').style.display='none';
+    return;
+  }
+  box.innerHTML=saleQueue.map((it,i)=>`<div class="pq-row">
+    <div class="pq-name">${escHtml(it.name)} <small class="pq-meta">× ${fmt(it.qty)} ${escHtml(it.unit||'')} @ ฿${fmt(it.price)}${it.mlStock?' · 🧪 '+fmt(it.mlStock)+' ml':''}</small></div>
+    <span class="pq-amt">฿${fmt(it.total)}</span>
+    <button class="pq-x" onclick="removeSaleQueueItem(${i})" title="ลบ">×</button>
+  </div>`).join('');
+  const total=saleQueue.reduce((s,x)=>s+(Number(x.total)||0),0);
+  document.getElementById('pq-total-val').textContent='฿'+fmt(total);
+  document.getElementById('pq-total').style.display='flex';
+}
+function removeSaleQueueItem(i){saleQueue.splice(i,1);renderSaleQueue();}
+
+// ─── PER-ROOM CATALOG (isolated add/edit/delete) ───
+// room.catalog: array of {cat, name, unit, price}
+function ensureRoomCatalog(r){
+  if(!r)return [];
+  if(!Array.isArray(r.catalog)){
+    // Seed from global CATEGORIES so the room starts with default items
+    r.catalog=[];
+    CATEGORIES.forEach(c=>c.items.forEach(it=>{
+      r.catalog.push({cat:c.id,name:it.name,unit:it.unit||'',price:it.price||0});
+    }));
+    saveRooms();
+  }
+  return r.catalog;
+}
+function getRoomCatalogByCat(r,catId){
+  const cat=ensureRoomCatalog(r);
+  return cat.filter(it=>it.cat===catId);
+}
+function openSaleAdd(){
+  const r=findRoom(currentRoom);
+  if(!r){alert('กรุณาเลือกห้องขายก่อน');return;}
+  ensureRoomCatalog(r);
+  // Build the combobox (same style as รายรับ-รายจ่าย) inside sa-cbox; on selection
+  // we write to hidden sa-cat / sa-item and auto-fill unit + price.
+  const box=document.getElementById('sa-cbox');
+  box.className='cbox cbox-block';
+  buildCatalogCbox(box,'sell','__sale_add__','room');
+  // Reset hidden inputs + other fields
+  document.getElementById('sa-cat').value='';
+  document.getElementById('sa-item').value='';
+  ['sa-qty','sa-unit','sa-price','sa-total','sa-custom','sa-ml'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('sa-custom').style.display='none';
+  // Clear any leftover Product-List binding from a previous open
+  const modal=document.getElementById('ov-sale-add');
+  if(modal){delete modal.dataset.plProductId;delete modal.dataset.plUnitId;}
+  updateSaMlVisibility();
+  document.getElementById('ov-sale-add').classList.add('open');
+}
+// Called by the cbox when a selection is made, via override below
+function saCboxApply(cat,name,plEntry){
+  document.getElementById('sa-cat').value=cat||'';
+  document.getElementById('sa-item').value=name||'';
+  // Track which Product-List entry (if any) drives this row, so calcSaleAddTotal can keep ml in sync with qty.
+  const modal=document.getElementById('ov-sale-add');
+  if(modal){
+    if(plEntry){
+      modal.dataset.plProductId=plEntry.p.id;
+      modal.dataset.plUnitId=plEntry.u.id;
+    }else{
+      delete modal.dataset.plProductId;
+      delete modal.dataset.plUnitId;
+    }
+  }
+  if(plEntry){
+    // Pull unit/price/ml directly from the central product list — the user just enters qty.
+    const u=document.getElementById('sa-unit');if(u)u.value=plEntry.u.name||'';
+    const p=document.getElementById('sa-price');if(p)p.value=plEntry.price||0;
+    if(plEntry.p.kind==='liquid'){
+      const mEl=document.getElementById('sa-ml');
+      if(mEl){
+        // Pre-fill ml = per-unit ml × current qty (default qty=1 if none)
+        const qty=Number(document.getElementById('sa-qty').value)||1;
+        mEl.value=plEntry.mlPerUnit*qty;
+      }
+    }
+    calcSaleAddTotal();
+    updateSaMlVisibility();
+    return;
+  }
+  const r=findRoom(currentRoom);if(!r)return;
+  const catalog=ensureRoomCatalog(r);
+  const it=catalog.find(x=>x.cat===cat&&x.name===name);
+  const prod=products.find(p=>p.id===prodKey(cat,name));
+  const roomCats=cboxCats('room');
+  const fallback=(roomCats.find(c=>c.id===cat)?.items||[]).find(i=>i.name===name)||(CATEGORIES.find(c=>c.id===cat)?.items||[]).find(i=>i.name===name);
+  const unit=(it&&it.unit)||(prod&&prod.unit)||(fallback&&fallback.unit)||'';
+  const price=(it&&it.price)||(prod&&prod.price)||(fallback&&fallback.price)||0;
+  const u=document.getElementById('sa-unit');if(u&&!u.value)u.value=unit;
+  const p=document.getElementById('sa-price');if(p&&!p.value&&price)p.value=price;
+  calcSaleAddTotal();
+  updateSaMlVisibility();
+}
+// Show the "ปริมาณน้ำส้มStock (ml)" field whenever the picked entry is a liquid Product-List item,
+// or — fallback for legacy rows — when the typed/picked name contains "น้ำส้ม".
+function updateSaMlVisibility(){
+  const picked=(document.getElementById('sa-item')?.value||'').trim();
+  const typed=(document.getElementById('sa-custom')?.value||'').trim();
+  const name=picked||typed;
+  const wrap=document.getElementById('sa-ml-wrap');
+  if(!wrap)return;
+  const modal=document.getElementById('ov-sale-add');
+  let isLiquidPL=false;
+  if(modal&&modal.dataset.plProductId){
+    const p=plFind(modal.dataset.plProductId);
+    if(p&&p.kind==='liquid')isLiquidPL=true;
+  }
+  if(isLiquidPL||/น้ำส้ม/.test(name)){wrap.style.display='';}
+  else{wrap.style.display='none';const mEl=document.getElementById('sa-ml');if(mEl)mEl.value='';}
+}
+// Kept for backward-compatibility with old code paths
+function refreshSaleAddItems(){}
+function onSaleAddPick(){}
+function calcSaleAddTotal(){
+  const q=Number(document.getElementById('sa-qty').value)||0;
+  const p=Number(document.getElementById('sa-price').value)||0;
+  document.getElementById('sa-total').value='฿'+fmt(q*p);
+  // If this row is bound to a liquid Product-List entry, keep the ml field in sync with qty.
+  const modal=document.getElementById('ov-sale-add');
+  if(modal&&modal.dataset.plProductId&&modal.dataset.plUnitId){
+    const prod=plFind(modal.dataset.plProductId);
+    if(prod&&prod.kind==='liquid'){
+      const u=prod.units.find(x=>x.id===modal.dataset.plUnitId);
+      if(u){
+        const factors=plUnitFactors(prod);
+        const baseUnits=factors[u.id]||0;
+        const mlPerUnit=baseUnits*(Number(prod.baseMl)||0);
+        const mEl=document.getElementById('sa-ml');
+        if(mEl)mEl.value=mlPerUnit*q;
+      }
+    }
+  }
+}
+function doAddSaleItem(){
+  let cat=document.getElementById('sa-cat').value;
+  const name=document.getElementById('sa-item').value;
+  const cust=document.getElementById('sa-custom').value.trim();
+  const finalName=name||cust;
+  if(!finalName){alert('กรุณาเลือกหรือพิมพ์ชื่อสินค้า');return;}
+  const qty=Number(document.getElementById('sa-qty').value)||0;
+  const price=Number(document.getElementById('sa-price').value)||0;
+  const unit=document.getElementById('sa-unit').value.trim();
+  if(qty<=0){alert('กรุณากรอกจำนวน');return;}
+  const modal=document.getElementById('ov-sale-add');
+  // If this row was selected from the central Product List, store a clean category
+  // for stock/finance tracking (so applyStockMove doesn't create a phantom product
+  // under the "__pl__:..." key) and remember the productId/unitId for traceability.
+  let plProductId='',plUnitId='';
+  if(typeof cat==='string'&&cat.indexOf('__pl__:')===0){
+    const parts=cat.split(':');
+    plProductId=parts[1]||'';plUnitId=parts[2]||'';
+    cat='product_list';
+  }
+  // ml: prefer the auto-computed value for liquid Product-List rows; fall back
+  // to legacy "name contains น้ำส้ม" rule for hand-typed entries.
+  let mlStock=0;
+  if(plProductId){
+    const prod=plFind(plProductId);
+    if(prod&&prod.kind==='liquid'){
+      const u=prod.units.find(x=>x.id===plUnitId);
+      if(u){
+        const factors=plUnitFactors(prod);
+        const baseUnits=factors[u.id]||0;
+        mlStock=baseUnits*(Number(prod.baseMl)||0)*qty;
+      }
+    }
+  }else if(/น้ำส้ม/.test(finalName)){
+    mlStock=Number(document.getElementById('sa-ml').value)||0;
+  }
+  const row={name:finalName,category:cat||'',qty,unit,price,total:qty*price};
+  if(mlStock>0)row.mlStock=mlStock;
+  if(plProductId){row.plProductId=plProductId;row.plUnitId=plUnitId;}
+  saleQueue.push(row);
+  if(modal){delete modal.dataset.plProductId;delete modal.dataset.plUnitId;}
+  closeOv('ov-sale-add');renderSaleQueue();
+}
+// Add a new item into this room's catalog (current category only)
+function addRoomCatalogItem(){
+  const r=findRoom(currentRoom);if(!r){alert('เลือกห้องขายก่อน');return;}
+  const catId=document.getElementById('sa-cat').value;
+  const cat=CATEGORIES.find(c=>c.id===catId);
+  const catName=cat?cat.name:catId;
+  const name=prompt('ชื่อสินค้าใหม่ในหมวด "'+catName+'":');
+  if(!name||!name.trim())return;
+  const trimmed=name.trim();
+  const list=ensureRoomCatalog(r);
+  if(list.some(it=>it.cat===catId&&it.name===trimmed)){alert('มีรายการชื่อนี้ในหมวดนี้อยู่แล้ว');return;}
+  const unit=(prompt('หน่วย (เช่น กก, ขวด, ชิ้น):','')||'').trim();
+  const priceRaw=prompt('ราคาต่อหน่วย (ใส่ 0 ได้):','0');
+  const price=Number(priceRaw)||0;
+  list.push({cat:catId,name:trimmed,unit,price});
+  saveRooms();
+  auditAdd('add_room_catalog_item','ห้อง: '+r.name,'หมวด: '+catName+' · '+trimmed);
+  refreshSaleAddItems();
+  const sel=document.getElementById('sa-item');sel.value=trimmed;onSaleAddPick(sel);
+  showToast('รายการ','✅ เพิ่ม "'+trimmed+'" แล้ว (เฉพาะห้องนี้)');
+}
+// Edit selected item in this room's catalog
+function editRoomCatalogItem(){
+  const r=findRoom(currentRoom);if(!r)return;
+  const catId=document.getElementById('sa-cat').value;
+  const sel=document.getElementById('sa-item');
+  const cur=sel.value;
+  if(!cur||cur==='__custom__'){alert('กรุณาเลือกรายการที่ต้องการแก้ไขก่อน');return;}
+  const list=ensureRoomCatalog(r);
+  const it=list.find(x=>x.cat===catId&&x.name===cur);
+  if(!it){alert('ไม่พบรายการนี้');return;}
+  const newName=prompt('ชื่อรายการ:',it.name);
+  if(newName===null)return;
+  const trimmedName=newName.trim();
+  if(!trimmedName){alert('ชื่อว่างไม่ได้');return;}
+  if(trimmedName!==it.name&&list.some(x=>x.cat===catId&&x.name===trimmedName)){alert('มีรายการชื่อนี้ในหมวดนี้อยู่แล้ว');return;}
+  const newUnit=prompt('หน่วย:',it.unit||'');
+  if(newUnit===null)return;
+  const newPriceRaw=prompt('ราคาต่อหน่วย:',String(it.price||0));
+  if(newPriceRaw===null)return;
+  const before={name:it.name,unit:it.unit,price:it.price};
+  it.name=trimmedName;it.unit=newUnit.trim();it.price=Number(newPriceRaw)||0;
+  saveRooms();
+  auditAdd('edit_room_catalog_item','ห้อง: '+r.name,'ก่อน: '+JSON.stringify(before)+' → หลัง: '+JSON.stringify({name:it.name,unit:it.unit,price:it.price}));
+  refreshSaleAddItems();
+  sel.value=it.name;onSaleAddPick(sel);
+  showToast('รายการ','✅ แก้ไข "'+it.name+'" แล้ว (เฉพาะห้องนี้)');
+}
+// Delete selected item from this room's catalog
+function deleteRoomCatalogItem(){
+  const r=findRoom(currentRoom);if(!r)return;
+  const catId=document.getElementById('sa-cat').value;
+  const sel=document.getElementById('sa-item');
+  const cur=sel.value;
+  if(!cur||cur==='__custom__'){alert('กรุณาเลือกรายการที่ต้องการลบก่อน');return;}
+  if(!confirm('ลบรายการ "'+cur+'" ออกจากหมวดนี้ของห้อง "'+r.name+'" ?\n(ไม่กระทบห้องอื่นหรือหมวดอื่น)'))return;
+  const list=ensureRoomCatalog(r);
+  r.catalog=list.filter(x=>!(x.cat===catId&&x.name===cur));
+  saveRooms();
+  auditAdd('delete_room_catalog_item','ห้อง: '+r.name,'หมวด: '+catId+' · '+cur);
+  refreshSaleAddItems();
+  showToast('รายการ','🗑️ ลบ "'+cur+'" แล้ว (เฉพาะห้องนี้)');
+}
+function renderMessages(){renderSales();}
+// Credit-withdraw status helper. "paid" wins forever; otherwise computed against today.
+// Returns 'na' for non-credit rows so callers can branch cleanly.
+function wdStatus(s){
+  if(!s||s.kind!=='withdraw')return 'na';
+  // support both paid===true and isPaid===true (legacy field name)
+  if(s.paid===true||s.isPaid===true)return 'paid';
+  const due=s.dueDate||s.creditDate;
+  if(!due)return 'pending';
+  // dueDate เก็บเป็น date string YYYY-MM-DD
+  // creditDate เก็บเป็น ISO string → แปลงเป็น date + 3 วัน
+  let dueStr=due;
+  if(due.length>10){
+    const d=new Date(due);d.setDate(d.getDate()+3);
+    dueStr=d.toISOString().slice(0,10);
+  }
+  const today=new Date().toISOString().slice(0,10);
+  return today>dueStr?'overdue':'pending';
+}
+function wdOverdueDays(s){
+  if(!s||!s.dueDate)return 0;
+  const today=new Date();today.setHours(0,0,0,0);
+  const d=new Date(s.dueDate+'T00:00:00');d.setHours(0,0,0,0);
+  return Math.max(0,Math.round((today-d)/86400000));
+}
+function renderSales(){
+  const r=findRoom(currentRoom);
+  const el=document.getElementById('msgs');
+  const sales=getRoomSales(r);
+  const total=sales.reduce((s,x)=>s+(Number(x.total)||0),0);
+  document.getElementById('chs').textContent=sales.length+' รายการขาย · ฿'+fmt(total)+(fbOn?' · 🟢':'');
+  if(!r){el.innerHTML='<div class="chat-empty"><div class="ei">🛒</div><p>เลือกห้องขาย / กลุ่มลูกค้า</p></div>';return;}
+  if(!sales.length){el.innerHTML='<div class="chat-empty"><div class="ei">🛒</div><p>ยังไม่มีรายการขายในห้องนี้<br/><small style="font-size:10px">เพิ่มสินค้าด้านล่างแล้วบันทึก → ตัดสต๊อก + เข้ารายรับอัตโนมัติ</small></p></div>';return;}
+  // Credit "ยังไม่จ่าย" (overdue) sorts to the very top, then "รอชำระ", then everything else by time.
+  const statusRank={overdue:0,pending:1,paid:2,na:2};
+  const sorted=[...sales].sort((a,b)=>{
+    const ra=statusRank[wdStatus(a)],rb=statusRank[wdStatus(b)];
+    if(ra!==rb)return ra-rb;
+    return (b.ts||0)-(a.ts||0);
+  });
+  let html=`<div class="sales-summary"><span class="ss-label">รวมยอดขายห้องนี้</span><span class="ss-val">฿${fmt(total)}</span></div>`;
+  sorted.forEach(s=>{
+    const dateStr=s.date?fmtDate(s.date):'';
+    const isWd=s.kind==='withdraw';
+    const st=wdStatus(s);
+    const due=s.dueDate?fmtDate(s.dueDate):'';
+    let pill='',cardCls='';
+    if(isWd){
+      if(st==='paid'){
+        const pd=s.paidDate?fmtDate(s.paidDate):'';
+        pill=`<span class="pill-paid">✓ ชำระแล้ว${pd?' · '+pd:''}</span>`;
+        cardCls=' wd-paid';
+      }else if(st==='overdue'){
+        const od=wdOverdueDays(s);
+        pill=`<span class="pill-overdue">⚠ เกินกำหนด${od?' '+od+' วัน':''}</span>`;
+        cardCls=' wd-overdue';
+      }else{
+        pill=`<span class="pill-pending">⏳ รอชำระ${due?' · ครบ '+due:''}</span>`;
+        cardCls=' wd-pending';
+      }
+    }
+    const wdStatusRow=isWd?`<div class="wd-status-row">
+        ${pill}
+        ${st!=='paid'?`<button class="btn-pay" onclick="markWithdrawPaid('${s.id}')">💰 รับชำระ</button>`:''}
+      </div>`:'';
+    html+=`<div class="sale-card${cardCls}${isWd&&st==='paid'?' wd-paid':''}">
+      <div class="sale-icon">${isWd?'📝':'🛒'}</div>
+      <div class="sale-body" style="flex:1;min-width:0">
+        <div class="sale-line1">${escHtml(s.name||'-')} <small style="color:var(--muted);font-weight:500">× ${fmt(s.qty||0)} ${escHtml(s.unit||'')}</small></div>
+        <div class="sale-line2">${dateStr} · @ ฿${fmt(s.price||0)}${s.note?' · '+escHtml(s.note):''}${s.by?' · '+escHtml(s.by):''}</div>
+        ${wdStatusRow}
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+        <div class="sale-amt">฿${fmt(s.total||0)}</div>
+        <button class="sale-del" onclick="delSale('${s.id}')">✕</button>
+      </div>
+    </div>`;
+  });
+  el.innerHTML=html;
+}
+
+// ── SALE TYPE SWITCH (รายรับ / ค่าใช้จ่าย) ──
+
+// ── INAREA EXPAND / COLLAPSE ──
+function expandInarea(){
+  const body=document.getElementById('inarea-body');
+  if(body)body.style.display='block';
+}
+function collapseInarea(){
+  const body=document.getElementById('inarea-body');
+  if(body)body.style.display='none';
+  // reset queue
+  saleQueue=[];renderSaleQueue();
+  document.getElementById('sl-note').value='';
+}
+function setSaleTypeAndExpand(type){
+  setSaleType(type);
+  expandInarea();
+}
+// ── END INAREA ──
+let _saleType='income'; // 'income' หรือ 'expense'
+
+function setSaleType(type){
+  _saleType=type;
+  const btnInc=document.getElementById('btn-type-income');
+  const btnExp=document.getElementById('btn-type-expense');
+  const hint=document.getElementById('expense-hint');
+  const addBtn=document.getElementById('btn-add-product');
+  const saveBtn=document.getElementById('btn-save-main');
+  const titleEl=document.getElementById('sale-add-title');
+  
+  if(type==='income'){
+    btnInc.className='sale-type-btn active-income';
+    btnExp.className='sale-type-btn';
+    if(hint)hint.classList.remove('show');
+    if(addBtn){addBtn.textContent='+ เลือกสินค้า';addBtn.style.background='';}
+    if(saveBtn){saveBtn.textContent='💾 บันทึก (ตัดสต็อก + รายรับ)';saveBtn.style.background='';}
+    if(titleEl)titleEl.textContent='➕ เพิ่มสินค้า (รายรับ)';
+  } else {
+    btnExp.className='sale-type-btn active-expense';
+    btnInc.className='sale-type-btn';
+    hint.style.display='block';
+    if(addBtn)addBtn.textContent='+ เพิ่มค่าใช้จ่าย';
+    if(saveBtn){saveBtn.textContent='💾 บันทึกค่าใช้จ่าย (รายจ่าย)';saveBtn.style.background='linear-gradient(135deg,#ef4444,#dc2626)';}
+    if(hint)hint.classList.add('show');
+    if(addBtn){addBtn.textContent='+ เลือกค่าใช้จ่าย';addBtn.style.background='#fef2f2';addBtn.style.color='#dc2626';addBtn.style.borderColor='#dc2626';}
+    if(titleEl)titleEl.textContent='➕ เพิ่มค่าใช้จ่าย';
+  }
+  // ล้าง queue เมื่อสลับ
+  saleQueue=[];renderSaleQueue();
+}
+
+async function saveSaleOrExpense(){
+  if(_saleType==='income'){
+    await saveSale();
+  } else {
+    await saveExpenseItems();
+  }
+}
+
+async function saveExpenseItems(){
+  if(!currentRoom){alert('กรุณาเลือกห้องขายก่อน');return;}
+  if(!saleQueue.length){alert('กรุณาเพิ่มรายการค่าใช้จ่ายก่อน');return;}
+  const r=findRoom(currentRoom);if(!r)return;
+  const date=document.getElementById('sl-date').value||new Date().toISOString().slice(0,10);
+  const note=document.getElementById('sl-note').value.trim();
+  const expItems=[];
+  const snap=_orgSnapshot();
+  try{
+    for(const it of saleQueue){
+      // ถ้าสินค้ามีในรายการสินค้า (มีสต็อก) → ตัดสต็อกด้วย
+      const hasProd=products.some(p=>p.name===it.name);
+      if(hasProd){
+        applyStockMove({name:it.name,category:it.category,qty:it.qty,unit:it.unit,price:it.price,__skipJuiceAuto:true},'out','ค่าใช้จ่าย ห้อง '+r.name);
+      }
+      expItems.push({name:it.name,category:it.category||'ค่าใช้จ่าย',qty:it.qty,unit:it.unit,price:it.price,total:it.total,note,by:profile.name||''});
+    }
+    const totalExp=saleQueue.reduce((s,x)=>s+(Number(x.total)||0),0);
+    const entry={id:Date.now(),date,expItems,incItems:[],expTotal:totalExp,incTotal:0,net:-totalExp,roomId:r.id,roomName:r.name,note:'ค่าใช้จ่าย ห้อง '+r.name};
+    finEntries.unshift(entry);
+    safeSaveFin();updateMetrics();queueSync('daily',[entry]);
+    auditAdd('add_expense','ห้อง: '+r.name+' · '+saleQueue.length+' รายการ · ฿'+fmt(totalExp));
+    saleQueue=[];renderSaleQueue();renderSales();renderRooms();
+    document.getElementById('sl-note').value='';
+    collapseInarea();
+    setSaleType('income');
+    showToast('บันทึกค่าใช้จ่าย','✅ ฿'+fmt(totalExp)+' → รายจ่าย'+(expItems.some(x=>products.some(p=>p.name===x.name))?' + ตัดสต็อก':''));
+  }catch(e){
+    _orgRestore(snap);
+    alert('⛔ บันทึกค่าใช้จ่ายไม่สำเร็จ\n('+(e&&e.message?e.message:e)+')');
+  }
+}
+// ── END SALE TYPE SWITCH ──
+async function saveSale(){
+  if(!currentRoom){alert('กรุณาเลือกห้องขายก่อน');return;}
+  if(!saleQueue.length){alert('กรุณาเพิ่มสินค้าลงในรายการก่อน');return;}
+  const r=findRoom(currentRoom);if(!r)return;
+  // Pre-flight: validate juice ml availability across all lots BEFORE any mutation.
+  const totalMlNeeded=saleQueue.reduce((s,it)=>s+(Number(it.mlStock)||0),0);
+  if(totalMlNeeded>0){
+    const totalLotMl=facLots.reduce((s,l)=>s+Math.max(0,facLotRemaining(l.lot)),0);
+    if(totalMlNeeded>totalLotMl){
+      alert('⛔ น้ำส้มในโรงงานไม่พอ\nต้องการ '+facFmt(totalMlNeeded)+' ml · มี '+facFmt(totalLotMl)+' ml — ยังไม่บันทึก');
+      return;
+    }
+  }
+  const date=document.getElementById('sl-date').value||new Date().toISOString().slice(0,10);
+  const note=document.getElementById('sl-note').value.trim();
+  const cust=r.customer||{};
+  // Atomic batch: snapshot every store the flow touches, apply all writes, rollback on any error.
+  const snap=_orgSnapshot();
+  try{
+    const incItems=[];
+    for(const it of saleQueue){
+      const id='s_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+      const sale={id,ts:Date.now(),date,category:it.category,name:it.name,qty:it.qty,unit:it.unit,price:it.price,total:it.total,note,by:profile.name||'',room:r.name,roomId:r.id,customer:cust};
+      if(it.mlStock)sale.mlStock=it.mlStock;
+      if(it.plProductId){sale.plProductId=it.plProductId;sale.plUnitId=it.plUnitId;}
+      getRoomSales(r).push(sale);
+      // [2] FG stock deduction (skip the auto-stockVol path only when an explicit mlStock
+      // is present — that path is now handled by facDeductJuiceForSale below; for legacy
+      // products without mlStock, the existing rule-based auto-deduction still applies)
+      applyStockMove({name:it.name,category:it.category,qty:it.qty,unit:it.unit,price:it.price,__skipJuiceAuto:!!it.mlStock},'out','ขายในห้อง '+r.name+(note?' ('+note+')':''));
+      // [3]+[4] ml deducted from FIFO Lot (the source of truth — replaces stockVol manual tank)
+      if(it.mlStock){
+        const dr=facDeductJuiceForSale(id,it.name,it.unit,it.mlStock);
+        if(!dr.ok)throw new Error(dr.error||'ตัด ml จาก Lot ไม่สำเร็จ');
+      }
+      incItems.push({name:it.name,category:it.category,qty:it.qty,unit:it.unit,price:it.price,total:it.total,saleId:id,mlStock:it.mlStock||0});
+    }
+    // [1] persist sales + [3 lot writes] + [5] income entry — all in one save sweep
+    saveRooms();facSave();
+    const totalAll=saleQueue.reduce((s,x)=>s+(Number(x.total)||0),0);
+    const entry={id:Date.now(),date,expItems:[],incItems,expTotal:0,incTotal:totalAll,net:totalAll,roomId:r.id,roomName:r.name};
+    finEntries.unshift(entry);
+    safeSaveFin();updateMetrics();queueSync('daily',[entry]);
+    auditAdd('add_sale','ห้อง: '+r.name+' · '+saleQueue.length+' รายการ · ฿'+fmt(totalAll));
+    saleQueue=[];renderSaleQueue();renderSales();renderRooms();
+    document.getElementById('sl-note').value='';
+    collapseInarea();
+    updateJuiceHeader();
+    showToast('บันทึกการขาย','✅ บันทึก '+incItems.length+' รายการ ฿'+fmt(totalAll)+' → ตัด FG + ml Lot + รายรับ');
+  }catch(e){_saleRollback(snap,'บันทึกการขายล้มเหลว — ยกเลิกการเปลี่ยนแปลงทั้งหมด',e);}
+}
+async function saveWithdraw(){
+  if(!currentRoom){alert('กรุณาเลือกห้องขายก่อน');return;}
+  if(!saleQueue.length){alert('กรุณาเพิ่มสินค้าลงในรายการก่อน');return;}
+  const r=findRoom(currentRoom);if(!r)return;
+  // Pre-flight: validate juice ml availability across all lots BEFORE any mutation.
+  const totalMlNeeded=saleQueue.reduce((s,it)=>s+(Number(it.mlStock)||0),0);
+  if(totalMlNeeded>0){
+    const totalLotMl=facLots.reduce((s,l)=>s+Math.max(0,facLotRemaining(l.lot)),0);
+    if(totalMlNeeded>totalLotMl){
+      alert('⛔ น้ำส้มในโรงงานไม่พอ\nต้องการ '+facFmt(totalMlNeeded)+' ml · มี '+facFmt(totalLotMl)+' ml — ยังไม่บันทึก');
+      return;
+    }
+  }
+  const date=document.getElementById('sl-date').value||new Date().toISOString().slice(0,10);
+  const note=document.getElementById('sl-note').value.trim();
+  const due=new Date(date+'T00:00:00');due.setDate(due.getDate()+3);
+  const dueDate=due.toISOString().slice(0,10);
+  const cust=r.customer||{};
+  // Atomic batch: deduct factory stock + ml immediately on เบิก.
+  // Revenue (finEntries) is still deferred until ✓ ชำระ.
+  const snap=_orgSnapshot();
+  try{
+    for(const it of saleQueue){
+      const id='w_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+      const sale={id,ts:Date.now(),date,kind:'withdraw',paid:false,deferredStock:false,withdrawDate:date,dueDate,paidDate:null,category:it.category,name:it.name,qty:it.qty,unit:it.unit,price:it.price,total:it.total,note,by:profile.name||'',room:r.name,roomId:r.id,customer:cust};
+      if(it.mlStock)sale.mlStock=it.mlStock;
+      if(it.plProductId){sale.plProductId=it.plProductId;sale.plUnitId=it.plUnitId;}
+      getRoomSales(r).push(sale);
+      // FG stock + ml deducted immediately (same path as saveSale)
+      applyStockMove({name:it.name,category:it.category,qty:it.qty,unit:it.unit,price:it.price,__skipJuiceAuto:!!it.mlStock},'out','เบิก (เครดิต) ห้อง '+r.name+(note?' ('+note+')':''));
+      if(it.mlStock){
+        const dr=facDeductJuiceForSale(id,it.name,it.unit,it.mlStock);
+        if(!dr.ok)throw new Error(dr.error||'ตัด ml จาก Lot ไม่สำเร็จ');
+      }
+    }
+    saveRooms();facSave();
+    const totalAll=saleQueue.reduce((s,x)=>s+(Number(x.total)||0),0);
+    auditAdd('add_withdraw','ห้อง: '+r.name+' · '+saleQueue.length+' รายการ · ฿'+fmt(totalAll)+' (เครดิต 3 วัน · ครบกำหนด '+dueDate+' · ตัดสต๊อก+ml แล้ว)');
+    saleQueue=[];renderSaleQueue();renderSales();renderRooms();updateJuiceHeader();
+    document.getElementById('sl-note').value='';
+    collapseInarea();
+    showToast('เบิก (รอชำระ)','🟡 ครบกำหนด '+dueDate+' · ตัดสต๊อก+ml แล้ว · รายรับจะเข้าเมื่อชำระ');
+  }catch(e){_saleRollback(snap,'บันทึกการเบิกล้มเหลว — ยกเลิกการเปลี่ยนแปลงทั้งหมด',e);}
+}
+async function markWithdrawPaid(id){
+  if(!currentRoom)return;
+  const r=findRoom(currentRoom);if(!r)return;
+  const s=getRoomSales(r).find(x=>x.id===id);
+  if(!s||s.kind!=='withdraw'||s.paid)return;
+  if(!confirm('บันทึกการชำระเงินสำหรับรายการนี้?\n(สต๊อก/ml ถูกตัดไปแล้วตั้งแต่ตอนเบิก — ขั้นนี้จะสร้างรายรับ ณ วันที่ชำระจริง)'))return;
+  // Pre-flight: legacy rows that still carry deferredStock===true never had stock deducted,
+  // so we still need to ensure ml availability for those. New-flow rows already deducted.
+  const mlNeeded=s.deferredStock===true?(Number(s.mlStock)||0):0;
+  if(mlNeeded>0){
+    const totalLotMl=facLots.reduce((s2,l)=>s2+Math.max(0,facLotRemaining(l.lot)),0);
+    if(mlNeeded>totalLotMl){
+      alert('⛔ น้ำส้มในโรงงานไม่พอ\nต้องการ '+facFmt(mlNeeded)+' ml · มี '+facFmt(totalLotMl)+' ml — ยังไม่ชำระ');
+      return;
+    }
+  }
+  const snap=_orgSnapshot();
+  try{
+    const today=new Date().toISOString().slice(0,10);
+    s.paid=true;s.paidDate=today;
+    // Legacy path: deferredStock===true means stock was NOT deducted at เบิก time. Catch up here.
+    if(s.deferredStock===true){
+      applyStockMove({name:s.name,category:s.category,qty:s.qty,unit:s.unit,price:s.price,__skipJuiceAuto:!!s.mlStock},'out','ชำระเครดิต ห้อง '+r.name+(s.note?' ('+s.note+')':''));
+      if(s.mlStock){
+        const dr=facDeductJuiceForSale(s.id,s.name,s.unit,s.mlStock);
+        if(!dr.ok)throw new Error(dr.error||'ตัด ml จาก Lot ไม่สำเร็จ');
+      }
+      s.deferredStock=false;
+    }
+    saveRooms();facSave();
+    const inc={name:s.name,category:s.category,qty:s.qty,unit:s.unit,price:s.price,total:s.total,saleId:s.id,mlStock:s.mlStock||0};
+    const entry={id:Date.now(),date:s.paidDate,expItems:[],incItems:[inc],expTotal:0,incTotal:Number(s.total||0),net:Number(s.total||0),roomId:r.id,roomName:r.name,note:'ชำระเครดิต '+s.id};
+    finEntries.unshift(entry);
+    safeSaveFin();updateMetrics();queueSync('daily',[entry]);
+    auditAdd('pay_withdraw','ห้อง: '+r.name+' · '+(s.name||'-')+' ฿'+fmt(s.total||0)+' (ชำระ '+s.paidDate+')');
+    renderSales();renderRooms();updateJuiceHeader();
+    showToast('ชำระแล้ว','🟢 บันทึกรายรับ ฿'+fmt(s.total||0));
+  }catch(e){_saleRollback(snap,'ชำระเงินไม่สำเร็จ — ยกเลิกการเปลี่ยนแปลงทั้งหมด',e);}
+}
+async function delSale(id){
+  if(!currentRoom)return;
+  if(!(await requirePerm('edit_sale','ลบรายการขายในห้องนี้')))return;
+  const r=findRoom(currentRoom);if(!r)return;
+  const sales=getRoomSales(r);
+  const idx=sales.findIndex(s=>s.id===id);
+  if(idx<0)return;
+  const s=sales[idx];
+  // Legacy attempt-9 rows that left deferredStock===true never deducted stock at เบิก — they
+  // only need a finance/stock cleanup if they were later paid. The new flow always deducts
+  // at เบิก, so unpaid credits must now refund stock just like normal sales.
+  const isLegacyDeferred=(s.kind==='withdraw'&&s.paid!==true&&s.deferredStock===true);
+  if(!confirm(isLegacyDeferred
+    ?'ลบรายการเบิก (เครดิต ที่ยังไม่ชำระ — รุ่นเก่า) นี้?\n(ยังไม่ได้ตัดสต๊อก/รายรับ จึงไม่ต้องคืน)'
+    :'ลบรายการขายนี้? (จะคืนสต๊อกและลบรายรับที่เกี่ยวข้องด้วย)'))return;
+  const snap=_orgSnapshot();
+  try{
+    sales.splice(idx,1);
+    if(!isLegacyDeferred){
+      if(s.qty>0)applyStockMove({name:s.name,category:s.category,qty:s.qty,unit:s.unit,price:s.price,__skipJuiceAuto:!!s.mlStock},'in','ยกเลิกการขาย '+r.name);
+      // Refund the ml back to the Lot(s) it was drawn from (sale-draw rows are removed,
+      // so facLotRemaining recomputes naturally).
+      if(s.mlStock)facRefundJuiceForSale(s.id);
+      // find the aggregated finance entry containing this saleId
+      for(let i=0;i<finEntries.length;i++){
+        const e=finEntries[i];
+        if(Array.isArray(e.incItems)){
+          const subIdx=e.incItems.findIndex(it=>it.saleId===id);
+          if(subIdx>=0){
+            e.incItems.splice(subIdx,1);
+            if(!e.incItems.length&&(!e.expItems||!e.expItems.length)){finEntries.splice(i,1);}
+            else{e.incTotal=(e.incItems||[]).reduce((x,y)=>x+(Number(y.total)||0),0);e.net=e.incTotal-(e.expTotal||0);}
+            break;
+          }
+        }
+        if(e.saleId===id){finEntries.splice(i,1);break;}
+      }
+    }
+    saveRooms();facSave();safeSaveFin();updateMetrics();
+    auditAdd('delete_sale','ห้อง: '+r.name+' · '+(s.name||'-')+' ฿'+fmt(s.total||0)+(isLegacyDeferred?' (เครดิตยังไม่ชำระ — รุ่นเก่า)':''));
+    renderSales();renderRooms();updateJuiceHeader();
+    showToast('ลบแล้ว',isLegacyDeferred?'🗑️ ลบรายการเบิก (รุ่นเก่า ยังไม่ชำระ)':'🗑️ ลบรายการขาย + คืนสต๊อก + คืน ml Lot');
+  }catch(e){_saleRollback(snap,'ลบรายการขายล้มเหลว — ยกเลิกการเปลี่ยนแปลงทั้งหมด',e);}
+}
+function sendMsg(){}
+function hKey(){}
+function aResize(){}
+function setType(){}
+async function clearChat(){
+  if(!currentRoom)return;
+  if(!(await requirePerm('edit_sale','ล้างประวัติการขายทั้งหมดของห้องนี้')))return;
+  if(!confirm('ล้างประวัติการขายของห้องนี้? (ยอดสต๊อก/รายรับที่บันทึกไว้จะยังคงอยู่)'))return;
+  const r=findRoom(currentRoom);
+  if(r){r.sales=[];r.msgs=[];saveRooms();}
+  auditAdd('clear_room_sales','ห้อง: '+(r?r.name:currentRoom));
+  renderSales();
+}
+
+// CHAT — ATTACHMENTS (sticker / image / file)
+function buildStickerGrid(){
+  const g=document.getElementById('sticker-grid');if(!g||g.childElementCount)return;
+  let html='';
+  for(let i=0;i<STICKER_COUNT;i++){html+=`<button type="button" class="sticker-opt" onclick="pickSticker(${i})" style="background-position:${stickerBgPos(i)}" aria-label="สติกเกอร์ ${i+1}"></button>`;}
+  g.innerHTML=html;
+}
+function toggleStickerPan(){
+  buildStickerGrid();
+  const p=document.getElementById('sticker-pan');
+  const btn=document.getElementById('btn-sticker');
+  const open=!p.classList.contains('open');
+  p.classList.toggle('open',open);
+  btn.classList.toggle('active',open);
+}
+function closeStickerPan(){
+  document.getElementById('sticker-pan')?.classList.remove('open');
+  document.getElementById('btn-sticker')?.classList.remove('active');
+}
+function pickSticker(i){
+  pendingAtt={kind:'sticker',stickerId:i};
+  closeStickerPan();
+  sendMsg();
+}
+async function handleChatImage(input){
+  const f=input.files&&input.files[0];if(!f){return;}
+  try{
+    const d=await compressImage(f,1000,0.75);
+    pendingAtt={kind:'image',data:d,name:f.name,size:d.length,mime:'image/jpeg'};
+    renderAttPreview();
+  }catch(e){alert('ไม่สามารถใช้รูปนี้ได้: '+(e.message||e));}
+  finally{input.value='';}
+}
+async function handleChatFile(input){
+  const f=input.files&&input.files[0];if(!f){return;}
+  if(f.type&&f.type.startsWith('image/')){return handleChatImage(input);}
+  if(f.size>CHAT_FILE_MAX){alert('ไฟล์ใหญ่เกินไป ('+fmtSize(f.size)+') — จำกัด '+fmtSize(CHAT_FILE_MAX));input.value='';return;}
+  try{
+    const data=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(new Error('อ่านไฟล์ไม่สำเร็จ'));r.readAsDataURL(f);});
+    pendingAtt={kind:'file',data,name:f.name,size:f.size,mime:f.type||'application/octet-stream'};
+    renderAttPreview();
+  }catch(e){alert('ไม่สามารถแนบไฟล์ได้: '+(e.message||e));}
+  finally{input.value='';}
+}
+function renderAttPreview(){
+  const el=document.getElementById('att-preview');if(!el)return;
+  if(!pendingAtt){el.style.display='none';el.innerHTML='';return;}
+  let inner='';
+  if(pendingAtt.kind==='image')inner=`<div class="att-chip"><img src="${escAttr(pendingAtt.data)}" alt=""/><span class="att-name">รูปภาพ</span><button class="att-x" onclick="clearPendingAtt()" title="ยกเลิก">×</button></div>`;
+  else if(pendingAtt.kind==='file')inner=`<div class="att-chip"><span style="font-size:18px">📄</span><span class="att-name">${escHtml(pendingAtt.name||'ไฟล์')} <small>(${fmtSize(pendingAtt.size)})</small></span><button class="att-x" onclick="clearPendingAtt()" title="ยกเลิก">×</button></div>`;
+  el.innerHTML=inner;el.style.display='flex';
+}
+function clearPendingAtt(){pendingAtt=null;renderAttPreview();}
+function fmtSize(b){if(!b&&b!==0)return '';if(b<1024)return b+' B';if(b<1024*1024)return (b/1024).toFixed(1)+' KB';return (b/1048576).toFixed(2)+' MB';}
+
+// FINANCE — ENTRIES
+function saveFin(){saveLS('org_fin',finEntries);scheduleAppStatePush('finance');}
+function buildDatalists(){
+  let dl=document.getElementById('dl-units');
+  if(!dl){dl=document.createElement('datalist');dl.id='dl-units';document.body.appendChild(dl);}
+  dl.innerHTML=UNITS.map(s=>`<option>${s}</option>`).join('');
+  // Populate add-product + inventory filter
+  const pcat=document.getElementById('p-cat');
+  if(pcat)pcat.innerHTML=CATEGORIES.map(c=>`<option value="${c.id}">${c.icon} ${c.name}</option>`).join('');
+  const fcat=document.getElementById('inv-cat-filter');
+  if(fcat)fcat.innerHTML='<option value="">ทุกหมวดหมู่</option>'+CATEGORIES.map(c=>`<option value="${c.id}">${c.icon} ${c.name}</option>`).join('');
+}
+function catalogOptions(){
+  // returns <optgroup> HTML built from CATEGORIES + any products that aren't in static catalog
+  const byCat={};
+  CATEGORIES.forEach(c=>{byCat[c.id]={cat:c,items:[...c.items.map(i=>i.name)]};});
+  products.forEach(p=>{
+    if(!byCat[p.category])byCat[p.category]={cat:{id:p.category,icon:'📦',name:p.category},items:[]};
+    if(!byCat[p.category].items.includes(p.name))byCat[p.category].items.push(p.name);
+  });
+  return Object.values(byCat).map(g=>{
+    const opts=g.items.map(n=>`<option value="${g.cat.id}||${escAttr(n)}">${escHtml(n)}</option>`).join('');
+    return `<optgroup label="${g.cat.icon} ${escHtml(g.cat.name)}">${opts}</optgroup>`;
+  }).join('')+`<optgroup label="— อื่นๆ —"><option value="__custom__">+ พิมพ์รายการใหม่...</option></optgroup>`;
+}
+function addRow(type){
+  const c=document.getElementById(type+'-items');
+  if(!c)return;
+  const id=type+'-'+(type==='exp'?ec++:ic++);
+  const d=document.createElement('div');d.className='item-row';d.id=id;
+  d.innerHTML=
+    `<div class="cbox" data-row="${id}" data-type="${type}"></div>`+
+    `<input type="number" placeholder="จำนวน" min="0" step="any" style="flex:.8" oninput="calcFin()"/>`+
+    `<input list="dl-units" placeholder="หน่วย" style="flex:.8"/>`+
+    `<input type="number" placeholder="ราคา" min="0" step="any" style="flex:1" oninput="calcFin()"/>`+
+    `<div class="photo-cell">`+
+      `<input type="file" accept="image/*" capture="environment" class="item-photo-input" style="display:none" onchange="handleItemPhoto(this,'${id}')"/>`+
+      `<button type="button" class="item-cam" onclick="this.parentElement.querySelector('.item-photo-input').click()" title="แนบรูป">📷</button>`+
+    `</div>`+
+    `<button class="rm" onclick="document.getElementById('${id}').remove();calcFin()">×</button>`;
+  c.appendChild(d);
+  buildCatalogCbox(d.querySelector('.cbox'),type,id,'finance');
+}
+
+// ── CUSTOM COMBOBOX (inline add/edit/delete, no external clutter) ──
+// Room-category catalog: separate from finance/inventory CATEGORIES so that
+// edits in one zone don't bleed into the other. Persisted under 'org_cats_rooms'.
+let CATEGORIES_ROOM=[];
+function loadRoomCats(){
+  try{
+    const raw=localStorage.getItem('org_cats_rooms');
+    if(raw){const arr=JSON.parse(raw);if(Array.isArray(arr)){CATEGORIES_ROOM=arr;return;}}
+  }catch(e){}
+  // Seed once from finance CATEGORIES so the room zone starts with defaults
+  CATEGORIES_ROOM=(CATEGORIES||[]).map(c=>({id:c.id,icon:c.icon,name:c.name,items:c.items.map(i=>({...i}))}));
+  saveLS('org_cats_rooms',CATEGORIES_ROOM);
+}
+function saveRoomCats(){saveLS('org_cats_rooms',CATEGORIES_ROOM);scheduleAppStatePush('roomCategories');}
+function cboxCats(scope){return scope==='room'?CATEGORIES_ROOM:CATEGORIES;}
+function cboxPersistCats(scope){
+  if(scope==='room')saveRoomCats();
+  else saveCategories();
+}
+let _cboxIdSeq=0;
+function buildCatalogCbox(box,type,rowId,scope){
+  if(!box)return;
+  scope=scope||'finance';
+  if(scope==='room'&&!CATEGORIES_ROOM.length)loadRoomCats();
+  const cboxId='cb'+(++_cboxIdSeq);
+  box.dataset.cboxId=cboxId;
+  box.dataset.rowId=rowId||'';
+  box.dataset.type=type||'';
+  box.dataset.scope=scope;
+  box.innerHTML=
+    `<button type="button" class="cbox-trigger placeholder" onclick="cboxOpen(this.parentElement)">— เลือกรายการ —</button>`+
+    `<div class="cbox-panel">`+
+      `<div class="cbox-search">`+
+        `<input type="text" placeholder="ค้นหา / พิมพ์รายการใหม่" oninput="cboxQuery(this)" onkeydown="cboxKey(event,this)"/>`+
+      `</div>`+
+      `<div class="cbox-actions">`+
+        `<button type="button" class="cbox-act primary" onclick="cboxAdd(this.closest('.cbox'))">+ เพิ่ม</button>`+
+        `<button type="button" class="cbox-act" onclick="cboxToggleEdit(this.closest('.cbox'))">✎ แก้ไข/ลบ</button>`+
+      `</div>`+
+      `<div class="cbox-list"></div>`+
+    `</div>`;
+  cboxRenderList(box);
+}
+function cboxRenderList(box){
+  const list=box.querySelector('.cbox-list');
+  const q=(box.querySelector('.cbox-search input').value||'').trim().toLowerCase();
+  const curCat=box.dataset.catId||'';
+  const curName=box.dataset.name||'';
+  const editing=box.classList.contains('edit-mode');
+  const scope=box.dataset.scope||'finance';
+  const cats=cboxCats(scope);
+  // Build grouped options. Finance pulls in products too (so inventory items appear).
+  // Room scope is isolated to CATEGORIES_ROOM only.
+  const byCat={};
+  cats.forEach(c=>{byCat[c.id]={cat:c,items:[...c.items.map(i=>i.name)]};});
+  if(scope==='finance'){
+    products.forEach(p=>{
+      if(!byCat[p.category])byCat[p.category]={cat:{id:p.category,icon:'📦',name:p.category},items:[]};
+      if(!byCat[p.category].items.includes(p.name))byCat[p.category].items.push(p.name);
+    });
+  }
+  const groups=Object.values(byCat);
+  let html='';
+  let totalVisible=0;
+  // ── Central Product List section (always at the top, all scopes) ──
+  // Rendered as Product · Unit entries; selection auto-fills unit + price (+ ml for liquids).
+  // Each room sees only the products tagged for it (categories drive the visibility).
+  // Edit mode is intentionally suppressed here — central list is edited only on the รายการสินค้า page.
+  if(!editing){
+    const roomKey=scope==='room'?'sell':'fin_exp';
+    const plEntries=plPickerEntries().filter(e=>{const p=plFind(e.productId);return p&&plProductInRoom(p,roomKey);});
+    const filteredPL=plEntries.filter(e=>!q||(e.name.toLowerCase().includes(q)||(e.unitName||'').toLowerCase().includes(q)));
+    if(filteredPL.length){
+      // Group by product category — for finance this gives one section per หมวดหมู่; for room (sell)
+      // typically only "สินค้าสำเร็จรูป" appears, but the same code paints them either way.
+      const byCat={};const order=[];
+      filteredPL.forEach(e=>{
+        const p=plFind(e.productId);
+        const cats=(p&&p.categoryIds&&p.categoryIds.length)?p.categoryIds:['__nocat__'];
+        cats.forEach(cid=>{
+          if(scope==='room'){
+            // Sales rooms only need the "สินค้าสำเร็จรูป"-flavour grouping; if the product is also in
+            // other cats (e.g. also tagged วัตถุดิบ for packaging), don't double-list it under those.
+            const c=pcFind(cid);
+            if(c && !(c.rooms||[]).includes('sell'))return;
+          }
+          if(!byCat[cid]){byCat[cid]={cat:pcFind(cid),items:[]};order.push(cid);}
+          byCat[cid].items.push(e);
+        });
+      });
+      // De-dup entries within a category so the same Product · Unit doesn't repeat.
+      order.forEach(cid=>{
+        const seen=new Set();
+        byCat[cid].items=byCat[cid].items.filter(e=>{const k=e.productId+'|'+e.unitId;if(seen.has(k))return false;seen.add(k);return true;});
+      });
+      const headLabel=scope==='room'?'📋 รายการสินค้า · "สินค้าสำเร็จรูป"':'📋 รายการสินค้า · เลือก "สินค้า · หน่วย"';
+      html+=`<div class="cbox-group" style="background:#ecfeff;color:#0e7490">${headLabel}</div>`;
+      order.forEach(cid=>{
+        const grp=byCat[cid];
+        const c=grp.cat;
+        const labelHead=c?`${c.icon||'🏷️'} ${escHtml(c.name)}`:'(ไม่มีหมวดหมู่)';
+        if(scope==='finance'&&c)html+=`<div class="cbox-group" style="background:#fef3c7;color:#92400e">${labelHead}</div>`;
+        grp.items.forEach(e=>{
+          const labelExtra=e.kind==='liquid'?` · ${plFmt(e.ml)} ml · ฿${plFmt(e.price)}`:` · ฿${plFmt(e.price)}`;
+          const catKey='__pl__:'+e.productId+':'+e.unitId;
+          const isSel=(curCat===catKey&&curName===e.name);
+          totalVisible++;
+          html+=`<div class="cbox-opt${isSel?' selected':''}" data-cat="${escAttr(catKey)}" data-name="${escAttr(e.name)}" data-pl="1" onclick="cboxPick(this)">
+            <span class="cbox-opt-name">${escHtml(e.name)} <small style="color:var(--muted)">· ${escHtml(e.unitName)}${labelExtra}</small></span>
+          </div>`;
+        });
+      });
+      // Quick link to manage central list
+      html+=`<div style="padding:6px 10px;text-align:right"><a href="#" onclick="event.preventDefault();const c=this.closest('.cbox');if(c)cboxClose(c);switchApp('products');" style="font-size:11px;color:#0891b2;text-decoration:underline">⚙️ จัดการรายการสินค้า</a></div>`;
+    }
+  }
+  groups.forEach(g=>{
+    // When editing, show every item (no search filter), so the entire list drops down ready to tap
+    const items=(editing?g.items:g.items.filter(n=>!q||n.toLowerCase().includes(q)));
+    if(!items.length)return;
+    totalVisible+=items.length;
+    html+=`<div class="cbox-group">${g.cat.icon||'📦'} ${escHtml(g.cat.name)}</div>`;
+    items.forEach((n,idx)=>{
+      const isSel=(g.cat.id===curCat&&n===curName);
+      // In edit mode, render draggable rows (long-press to reorder; ✕ to delete)
+      const dragAttrs=editing?` draggable="true" data-cat="${escAttr(g.cat.id)}" data-name="${escAttr(n)}" data-idx="${idx}"`:` data-cat="${escAttr(g.cat.id)}" data-name="${escAttr(n)}" data-idx="${idx}"`;
+      html+=`<div class="cbox-opt${isSel?' selected':''}${editing?' draggable':''}"
+        ${dragAttrs}
+        onclick="cboxPick(this)">
+        ${editing?'<span class="cbox-opt-grip" title="กดค้างแล้วลากเพื่อย้าย">⋮⋮</span>':''}
+        <span class="cbox-opt-name">${escHtml(n)}</span>
+        ${editing?`<button type="button" class="cbox-opt-edit" title="เปลี่ยนชื่อ" onclick="event.stopPropagation();cboxRename(this)">✎</button>`:''}
+        ${editing?`<button type="button" class="cbox-opt-x" title="ลบรายการ" onclick="event.stopPropagation();cboxDelete(this)">✕</button>`:''}
+      </div>`;
+    });
+  });
+  if(!totalVisible){
+    html=q
+      ? `<div class="cbox-empty">ยังไม่มี "${escHtml(q)}" — กด "+ เพิ่ม" เพื่อบันทึกเป็นรายการใหม่</div>`
+      : `<div class="cbox-empty">ยังไม่มีรายการในหมวดใดๆ</div>`;
+  }
+  list.innerHTML=html;
+  if(editing)cboxBindDragHandlers(box);
+}
+function cboxOpen(box){
+  // Close others
+  document.querySelectorAll('.cbox.open').forEach(x=>{if(x!==box)x.classList.remove('open','edit-mode','has-query');});
+  box.classList.toggle('open');
+  if(box.classList.contains('open')){
+    cboxRenderList(box);
+    const inp=box.querySelector('.cbox-search input');
+    if(inp){inp.value='';box.classList.remove('has-query');setTimeout(()=>inp.focus(),30);}
+  }
+}
+function cboxClose(box){box.classList.remove('open','edit-mode','has-query');}
+function cboxQuery(inp){
+  const box=inp.closest('.cbox');
+  const v=inp.value.trim();
+  box.classList.toggle('has-query',!!v);
+  cboxRenderList(box);
+}
+function cboxKey(ev,inp){
+  if(ev.key==='Escape'){ev.preventDefault();cboxClose(inp.closest('.cbox'));}
+  else if(ev.key==='Enter'){ev.preventDefault();const box=inp.closest('.cbox');if(inp.value.trim())cboxAdd(box);}
+}
+function cboxPick(opt){
+  const box=opt.closest('.cbox');
+  if(box.classList.contains('edit-mode'))return;
+  const cat=opt.dataset.cat,name=opt.dataset.name;
+  cboxSetSelection(box,cat,name);
+  cboxClose(box);
+}
+function cboxSetSelection(box,cat,name){
+  box.dataset.catId=cat;box.dataset.name=name;
+  const trig=box.querySelector('.cbox-trigger');
+  if(trig){trig.textContent=name;trig.classList.remove('placeholder');}
+  const rowId=box.dataset.rowId,type=box.dataset.type;
+  // Detect Product-List entry: cat looks like "__pl__:<productId>:<unitId>"
+  let plEntry=null;
+  if(typeof cat==='string'&&cat.indexOf('__pl__:')===0){
+    const parts=cat.split(':');
+    const pid=parts[1],uid=parts[2];
+    const p=plFind(pid);
+    if(p){
+      const u=p.units.find(x=>x.id===uid);
+      if(u){
+        const factors=plUnitFactors(p);
+        const baseUnits=factors[u.id]||0;
+        plEntry={p,u,baseUnits,price:baseUnits*(Number(p.basePrice)||0),mlPerUnit:p.kind==='liquid'?baseUnits*(Number(p.baseMl)||0):0};
+      }
+    }
+  }
+  // Sale-add modal hook: no row, but a dedicated callback fills its fields
+  if(rowId==='__sale_add__'){
+    try{saCboxApply(cat,name,plEntry);}catch(e){}
+    return;
+  }
+  const row=rowId?document.getElementById(rowId):null;
+  if(row){
+    row.dataset.category=cat;row.dataset.name=name;
+    const ins=row.querySelectorAll('input:not([type=file])');
+    const unitI=ins[1],priceI=ins[2];
+    if(plEntry){
+      // Auto-fill unit + price (per 1 unit) from the central product list.
+      if(unitI)unitI.value=plEntry.u.name||'';
+      if(priceI)priceI.value=plEntry.price||0;
+      calcFin();
+      return;
+    }
+    const prod=products.find(p=>p.id===prodKey(cat,name));
+    const fallback=(CATEGORIES.find(c=>c.id===cat)?.items||[]).find(i=>i.name===name);
+    // Expenses default to the pack unit (since people buy in boxes/packs),
+    // while income/sales default to the base unit. This matches how people enter data.
+    const preferPack=(type==='exp'&&prod&&prod.packUnit&&Number(prod.packSize)>0);
+    if(unitI&&!unitI.value)unitI.value=preferPack?prod.packUnit:((prod?.unit)||(fallback?.unit)||'');
+    if(priceI&&!priceI.value){
+      let price=0;
+      if(type==='exp'){
+        // For expenses, show the full pack cost when pack info exists (cost is stored per base unit).
+        if(preferPack&&prod.cost)price=Math.round(prod.cost*prod.packSize*100)/100;
+        else price=(prod?.cost||fallback?.price)||0;
+      }else{
+        price=(prod?.price||fallback?.price)||0;
+      }
+      if(price)priceI.value=price;
+    }
+    calcFin();
+  }
+}
+function cboxAdd(box){
+  const inp=box.querySelector('.cbox-search input');
+  const typed=(inp.value||'').trim();
+  const scope=box.dataset.scope||'finance';
+  const cats=cboxCats(scope);
+  // Always open the category picker popup — user picks the category first,
+  // then (if no name was typed) provides a name.
+  openCboxCatPicker(scope,cats,(catId)=>{
+    let name=typed;
+    if(!name){
+      name=(prompt('ชื่อรายการใหม่:')||'').trim();
+      if(!name)return;
+    }
+    let cat=cats.find(c=>c.id===catId);
+    if(!cat){cat={id:'other',icon:'💼',name:'อื่นๆ',items:[]};cats.push(cat);}
+    if(cat.items.some(it=>it.name===name)){
+      showToast('รายการ','มีชื่อ "'+name+'" ในหมวดนี้อยู่แล้ว');
+    }else{
+      cat.items.push({name,unit:'',price:0});
+      cboxPersistCats(scope);
+      showToast('เพิ่มรายการ','✅ เพิ่ม "'+name+'" เข้าหมวด '+cat.name);
+    }
+    inp.value='';box.classList.remove('has-query');
+    cboxRenderList(box);
+    cboxSetSelection(box,cat.id,name);
+    cboxClose(box);
+    // Refresh any sibling cboxes of the SAME scope
+    document.querySelectorAll('.cbox').forEach(x=>{if(x!==box&&(x.dataset.scope||'finance')===scope)cboxRenderList(x);});
+  });
+}
+// Rename an item in the dropdown (pencil icon in edit mode)
+function cboxRename(btn){
+  const opt=btn.closest('.cbox-opt');
+  const box=btn.closest('.cbox');
+  const scope=box.dataset.scope||'finance';
+  const cats=cboxCats(scope);
+  const catId=opt.dataset.cat,oldName=opt.dataset.name;
+  const fresh=(prompt('เปลี่ยนชื่อรายการ:',oldName)||'').trim();
+  if(!fresh||fresh===oldName)return;
+  const cat=cats.find(c=>c.id===catId);if(!cat)return;
+  if(cat.items.some(it=>it.name===fresh)){showToast('ชื่อซ้ำ','มีชื่อ "'+fresh+'" อยู่แล้ว');return;}
+  const it=cat.items.find(i=>i.name===oldName);if(!it)return;
+  it.name=fresh;
+  cboxPersistCats(scope);
+  // For finance, also rename in products
+  if(scope==='finance'){
+    const prod=products.find(p=>p.category===catId&&p.name===oldName);
+    if(prod){prod.name=fresh;prod.id=prodKey(catId,fresh);saveInv();}
+  }
+  if(box.dataset.catId===catId&&box.dataset.name===oldName){
+    box.dataset.name=fresh;
+    const trig=box.querySelector('.cbox-trigger');if(trig)trig.textContent=fresh;
+  }
+  cboxRenderList(box);
+  document.querySelectorAll('.cbox').forEach(x=>{if(x!==box&&(x.dataset.scope||'finance')===scope)cboxRenderList(x);});
+  showToast('เปลี่ยนชื่อแล้ว','✏️ "'+oldName+'" → "'+fresh+'"');
+}
+// Category-picker popup shown when user taps "+ เพิ่ม" in the dropdown
+function openCboxCatPicker(scope,cats,onPick){
+  // ปิด popup เก่าก่อนเสมอ
+  const existing=document.getElementById('ov-cbox-cat');
+  if(existing)existing.classList.remove('open');
+  let ov=document.getElementById('ov-cbox-cat');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='ov-cbox-cat';ov.className='ov';
+    // click outside ปิด popup
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('open');});
+    ov.innerHTML=`<div class="modal" style="max-width:360px;position:relative;z-index:300">
+      <div class="mh"><span>เลือกหมวดหมู่</span><span class="mx" onclick="document.getElementById('ov-cbox-cat').classList.remove('open')">×</span></div>
+      <div style="padding:6px 12px;font-size:12px;color:var(--muted)">เลือกหมวดหมู่สำหรับรายการใหม่</div>
+      <div id="cbox-cat-picker-list" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px;max-height:60vh;overflow-y:auto"></div>
+      <div style="padding:8px 12px;border-top:1px solid var(--border);display:flex;gap:6px">
+        <input id="cbox-cat-picker-new" placeholder="+ หมวดหมู่ใหม่..." style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px"/>
+        <button class="mok" onclick="cboxCatPickerCreate()">สร้าง</button>
+      </div>
+    </div>`;
+    document.body.appendChild(ov);
+  }
+  const list=ov.querySelector('#cbox-cat-picker-list');
+  list.innerHTML=cats.map(c=>`<button type="button" class="exp-btn" style="display:flex;align-items:center;gap:8px;padding:9px 12px;justify-content:flex-start;font-size:13px" data-catid="${escAttr(c.id)}">
+    <span style="font-size:18px">${c.icon||'📦'}</span>
+    <span style="flex:1;text-align:left"><b>${escHtml(c.name)}</b></span>
+    <span style="font-size:10px;color:var(--muted)">${c.items.length} รายการ</span>
+  </button>`).join('')||'<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">ยังไม่มีหมวดหมู่ — พิมพ์ชื่อใหม่ด้านล่าง</div>';
+  list.querySelectorAll('button[data-catid]').forEach(b=>{
+    b.onclick=()=>{const cid=b.getAttribute('data-catid');ov.classList.remove('open');onPick(cid);};
+  });
+  ov.dataset.scope=scope;
+  ov._onPick=onPick;
+  ov.classList.add('open');
+  setTimeout(()=>ov.querySelector('#cbox-cat-picker-new').focus(),60);
+}
+function cboxCatPickerCreate(){
+  const ov=document.getElementById('ov-cbox-cat');if(!ov)return;
+  const inp=ov.querySelector('#cbox-cat-picker-new');
+  const name=(inp.value||'').trim();if(!name)return;
+  const scope=ov.dataset.scope||'finance';
+  const cats=cboxCats(scope);
+  const id='c_'+Date.now().toString(36);
+  cats.push({id,icon:'📦',name,items:[]});
+  cboxPersistCats(scope);
+  const onPick=ov._onPick;
+  ov.classList.remove('open');
+  if(onPick)onPick(id);
+}
+function cboxToggleEdit(box){
+  const entering=!box.classList.contains('edit-mode');
+  box.classList.toggle('edit-mode',entering);
+  // Entering edit mode: clear any typed query so the full list drops down for editing
+  if(entering){
+    const inp=box.querySelector('.cbox-search input');
+    if(inp){inp.value='';}
+    box.classList.remove('has-query');
+  }
+  cboxRenderList(box);
+}
+function cboxDelete(btn){
+  const opt=btn.closest('.cbox-opt');
+  const box=btn.closest('.cbox');
+  const scope=box.dataset.scope||'finance';
+  const cats=cboxCats(scope);
+  const cat=opt.dataset.cat,name=opt.dataset.name;
+  if(!confirm('ลบ "'+name+'" ออกจากรายการ?'))return;
+  const c=cats.find(x=>x.id===cat);
+  if(c)c.items=c.items.filter(it=>it.name!==name);
+  cboxPersistCats(scope);
+  // Finance scope also syncs to inventory products (the other source that can resurrect the item)
+  if(scope==='finance'){
+    const pid=prodKey(cat,name);
+    const had=products.some(p=>p.id===pid||(p.category===cat&&p.name===name));
+    if(had){
+      products=products.filter(p=>!(p.id===pid||(p.category===cat&&p.name===name)));
+      rememberDeletedProduct(pid,Date.now());
+      saveInv();
+    }
+  }
+  if(box.dataset.catId===cat&&box.dataset.name===name){
+    box.dataset.catId='';box.dataset.name='';
+    const trig=box.querySelector('.cbox-trigger');
+    if(trig){trig.textContent='— เลือกรายการ —';trig.classList.add('placeholder');}
+    const rowId=box.dataset.rowId;const row=rowId?document.getElementById(rowId):null;
+    if(row){row.dataset.category='';row.dataset.name='';}
+  }
+  cboxRenderList(box);
+  document.querySelectorAll('.cbox').forEach(x=>{if(x!==box&&(x.dataset.scope||'finance')===scope)cboxRenderList(x);});
+  showToast('ลบแล้ว','🗑️ ลบ "'+name+'"');
+}
+// Reorder within the category — swap adjacent, used both by arrows (legacy) and long-press drag
+function cboxReorder(cat,fromIdx,toIdx,scope){
+  scope=scope||'finance';
+  const cats=cboxCats(scope);
+  const c=cats.find(x=>x.id===cat);
+  if(!c||fromIdx<0||toIdx<0||fromIdx>=c.items.length||toIdx>=c.items.length||fromIdx===toIdx)return false;
+  const [moved]=c.items.splice(fromIdx,1);
+  c.items.splice(toIdx,0,moved);
+  cboxPersistCats(scope);
+  return true;
+}
+
+// Long-press + drag to reorder in edit-mode. Works on both mouse and touch.
+function cboxBindDragHandlers(box){
+  const opts=[...box.querySelectorAll('.cbox-opt')];
+  opts.forEach(el=>{
+    let longPressTimer=null;
+    let dragging=false;
+    let startY=0;
+    const startDrag=()=>{
+      dragging=true;
+      el.classList.add('dragging');
+    };
+    // Touch: hold for ~250ms to arm drag; move to reorder
+    el.addEventListener('touchstart',e=>{
+      if(e.touches.length>1)return;
+      startY=e.touches[0].clientY;
+      if(longPressTimer)clearTimeout(longPressTimer);
+      longPressTimer=setTimeout(startDrag,250);
+    },{passive:true});
+    el.addEventListener('touchmove',e=>{
+      if(!dragging){
+        // cancel long-press if user scrolls before hold completes
+        if(longPressTimer){clearTimeout(longPressTimer);longPressTimer=null;}
+        return;
+      }
+      e.preventDefault();
+      const t=e.touches[0];
+      const overEl=document.elementFromPoint(t.clientX,t.clientY);
+      const target=overEl&&overEl.closest('.cbox-opt');
+      box.querySelectorAll('.cbox-opt.drag-over-top,.cbox-opt.drag-over-bot').forEach(x=>x.classList.remove('drag-over-top','drag-over-bot'));
+      if(target&&target!==el&&target.dataset.cat===el.dataset.cat){
+        const rect=target.getBoundingClientRect();
+        const topHalf=t.clientY<rect.top+rect.height/2;
+        target.classList.add(topHalf?'drag-over-top':'drag-over-bot');
+      }
+    },{passive:false});
+    el.addEventListener('touchend',e=>{
+      if(longPressTimer){clearTimeout(longPressTimer);longPressTimer=null;}
+      if(!dragging){el.classList.remove('dragging');return;}
+      const t=(e.changedTouches&&e.changedTouches[0])||null;
+      const overEl=t?document.elementFromPoint(t.clientX,t.clientY):null;
+      const target=overEl&&overEl.closest('.cbox-opt');
+      el.classList.remove('dragging');
+      box.querySelectorAll('.cbox-opt.drag-over-top,.cbox-opt.drag-over-bot').forEach(x=>x.classList.remove('drag-over-top','drag-over-bot'));
+      if(target&&target!==el&&target.dataset.cat===el.dataset.cat){
+        const cat=el.dataset.cat;
+        const fromIdx=parseInt(el.dataset.idx,10);
+        const toIdxRaw=parseInt(target.dataset.idx,10);
+        const rect=target.getBoundingClientRect();
+        const topHalf=t&&t.clientY<rect.top+rect.height/2;
+        let toIdx=toIdxRaw+(topHalf?0:1);
+        if(fromIdx<toIdx)toIdx--;
+        if(cboxReorder(cat,fromIdx,toIdx,box.dataset.scope||'finance')){
+          cboxRenderList(box);
+          document.querySelectorAll('.cbox').forEach(x=>{if(x!==box&&(x.dataset.scope||'finance')===(box.dataset.scope||'finance'))cboxRenderList(x);});
+        }
+      }
+      dragging=false;
+    });
+    el.addEventListener('touchcancel',()=>{
+      if(longPressTimer){clearTimeout(longPressTimer);longPressTimer=null;}
+      el.classList.remove('dragging');dragging=false;
+      box.querySelectorAll('.cbox-opt.drag-over-top,.cbox-opt.drag-over-bot').forEach(x=>x.classList.remove('drag-over-top','drag-over-bot'));
+    });
+    // HTML5 drag (desktop)
+    el.addEventListener('dragstart',e=>{
+      dragging=true;el.classList.add('dragging');
+      if(e.dataTransfer){e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',el.dataset.idx);}catch(err){}}
+    });
+    el.addEventListener('dragover',e=>{
+      e.preventDefault();
+      const target=e.currentTarget;
+      box.querySelectorAll('.cbox-opt.drag-over-top,.cbox-opt.drag-over-bot').forEach(x=>{if(x!==target)x.classList.remove('drag-over-top','drag-over-bot');});
+      const rect=target.getBoundingClientRect();
+      const topHalf=e.clientY<rect.top+rect.height/2;
+      target.classList.remove(topHalf?'drag-over-bot':'drag-over-top');
+      target.classList.add(topHalf?'drag-over-top':'drag-over-bot');
+    });
+    el.addEventListener('drop',e=>{
+      e.preventDefault();
+      const target=e.currentTarget;
+      const srcEl=box.querySelector('.cbox-opt.dragging');
+      target.classList.remove('drag-over-top','drag-over-bot');
+      if(!srcEl||srcEl===target||srcEl.dataset.cat!==target.dataset.cat)return;
+      const cat=srcEl.dataset.cat;
+      const fromIdx=parseInt(srcEl.dataset.idx,10);
+      const toIdxRaw=parseInt(target.dataset.idx,10);
+      const rect=target.getBoundingClientRect();
+      const topHalf=e.clientY<rect.top+rect.height/2;
+      let toIdx=toIdxRaw+(topHalf?0:1);
+      if(fromIdx<toIdx)toIdx--;
+      if(cboxReorder(cat,fromIdx,toIdx,box.dataset.scope||'finance')){
+        cboxRenderList(box);
+        document.querySelectorAll('.cbox').forEach(x=>{if(x!==box&&(x.dataset.scope||'finance')===(box.dataset.scope||'finance'))cboxRenderList(x);});
+      }
+    });
+    el.addEventListener('dragend',()=>{
+      el.classList.remove('dragging');
+      box.querySelectorAll('.cbox-opt.drag-over-top,.cbox-opt.drag-over-bot').forEach(x=>x.classList.remove('drag-over-top','drag-over-bot'));
+      dragging=false;
+    });
+  });
+}
+
+// Kept for legacy callers — now delegates to cboxReorder
+function cboxMove(btn,dir){
+  const opt=btn.closest('.cbox-opt');
+  const box=btn.closest('.cbox');
+  const scope=box.dataset.scope||'finance';
+  const cats=cboxCats(scope);
+  const cat=opt.dataset.cat,name=opt.dataset.name;
+  const c=cats.find(x=>x.id===cat);if(!c)return;
+  const idx=c.items.findIndex(it=>it.name===name);
+  if(cboxReorder(cat,idx,idx+dir,scope)){
+    cboxRenderList(box);
+    document.querySelectorAll('.cbox').forEach(x=>{if(x!==box&&(x.dataset.scope||'finance')===scope)cboxRenderList(x);});
+  }
+}
+// Click outside to close any open combobox
+document.addEventListener('click',function(e){
+  if(e.target.closest('.cbox'))return;
+  document.querySelectorAll('.cbox.open').forEach(x=>cboxClose(x));
+});
+// Make "addRoomCatalogItem" / "editRoomCatalogItem" / "deleteRoomCatalogItem" still callable
+// for ov-sale-add (kept untouched, uses native <select> there).
+async function handleItemPhoto(input,rowId){
+  const f=input.files&&input.files[0];if(!f){input.value='';return;}
+  try{
+    const d=await compressImage(f,900,0.75);
+    setItemPhoto(rowId,d);
+  }catch(e){alert('ไม่สามารถใช้รูปนี้ได้: '+(e.message||e));}
+  finally{input.value='';}
+}
+function setItemPhoto(rowId,dataUrl){
+  const row=document.getElementById(rowId);if(!row)return;
+  const cell=row.querySelector('.photo-cell');if(!cell)return;
+  row.dataset.photo=dataUrl||'';
+  // Rebuild the cell content based on whether a photo is attached
+  const input=cell.querySelector('.item-photo-input');
+  cell.innerHTML='';
+  cell.appendChild(input);
+  if(dataUrl){
+    const img=document.createElement('img');
+    img.src=dataUrl;img.className='item-thumb';img.alt='รูปประกอบรายการ';
+    img.onclick=()=>openLightbox(dataUrl);
+    cell.appendChild(img);
+    const x=document.createElement('button');x.type='button';x.className='x-mini';x.textContent='×';x.title='ลบรูป';
+    x.onclick=()=>setItemPhoto(rowId,'');
+    cell.appendChild(x);
+  }else{
+    const btn=document.createElement('button');btn.type='button';btn.className='item-cam';btn.title='แนบรูป';btn.textContent='📷';
+    btn.onclick=()=>input.click();
+    cell.appendChild(btn);
+  }
+}
+function onItemPick(sel,type,rowId){
+  const row=document.getElementById(rowId);
+  const custom=row.querySelector('.custom-name');
+  const inputs=row.querySelectorAll('input');
+  const qtyI=inputs[1],unitI=inputs[2],priceI=inputs[3];
+  const val=sel.value;
+  if(val==='__custom__'){
+    sel.style.display='none';custom.style.display='';custom.focus();row.dataset.category='other';row.dataset.name='';
+    return;
+  }
+  if(!val){row.dataset.category='';row.dataset.name='';return;}
+  const[catId,name]=val.split('||');
+  row.dataset.category=catId;row.dataset.name=name;
+  // auto-fill default unit/price from catalog or product
+  const prod=products.find(p=>p.id===prodKey(catId,name));
+  const fallback=(CATEGORIES.find(c=>c.id===catId)?.items||[]).find(i=>i.name===name);
+  if(!unitI.value)unitI.value=(prod?.unit)||(fallback?.unit)||'';
+  if(!priceI.value){const price=(type==='exp'?(prod?.cost||fallback?.price):(prod?.price||fallback?.price))||0;if(price)priceI.value=price;}
+  calcFin();
+}
+function getRows(type){
+  return [...document.querySelectorAll('#'+type+'-items .item-row')].map(r=>{
+    const ins=r.querySelectorAll('input:not([type=file])');
+    const qty=parseFloat(ins[0].value)||0,unit=ins[1].value.trim(),price=parseFloat(ins[2].value)||0;
+    let category=r.dataset.category||'',name=r.dataset.name||'';
+    const photo=r.dataset.photo||'';
+    const row={name,category,qty,unit,price,total:qty&&price?qty*price:price||0};
+    if(photo)row.photo=photo;
+    return row;
+  }).filter(r=>r.name);
+}
+function calcFin(){
+  const e=getRows('exp').reduce((s,r)=>s+r.total,0);
+  const i=getRows('inc').reduce((s,r)=>s+r.total,0);
+  const n=i-e;
+  document.getElementById('p-exp').textContent='฿'+fmt(e);
+  document.getElementById('p-inc').textContent='฿'+fmt(i);
+  const nel=document.getElementById('p-net');
+  nel.textContent=(n<0?'-':'')+'฿'+fmt(Math.abs(n));
+  nel.style.color=n>=0?'var(--inc-label)':'var(--exp-label)';
+}
+function saveEntry(){
+  const date=document.getElementById('f-date').value;
+  if(!date){alert('กรุณาเลือกวันที่');return;}
+  const ei=getRows('exp'),ii=getRows('inc');
+  if(!ei.length&&!ii.length){alert('กรุณากรอกรายการอย่างน้อย 1 รายการ');return;}
+  const et=ei.reduce((s,r)=>s+r.total,0),it=ii.reduce((s,r)=>s+r.total,0);
+  if(editingId){
+    const idx=finEntries.findIndex(e=>e.id===editingId);
+    if(idx>=0){
+      const prev=finEntries[idx];
+      finEntries[idx]={...prev,date,expItems:ei,incItems:ii,expTotal:et,incTotal:it,net:it-et};
+      // Keep legacy entry-level photos only if present (backward compat); new edits don't add them
+      if(!safeSaveFin()){return;}
+      updateMetrics();
+      queueSync('daily',[finEntries[idx]]);
+      showToast('อัปเดต','✏️ แก้ไขรายการแล้ว'+(gsOn?' + ซิงค์ Sheets':''));
+    }
+    editingId=null;hideEditBanner();resetFinForm();
+    switchFTabById('list');
+    return;
+  }
+  const entry={id:Date.now(),date,expItems:ei,incItems:ii,expTotal:et,incTotal:it,net:it-et};
+  finEntries.unshift(entry);
+  if(!safeSaveFin()){finEntries.shift();return;}
+  updateMetrics();
+  // ── Auto update stock: รายจ่าย = รับเข้าสินค้า, รายรับ = ตัดออก
+  ei.forEach(i=>{if(i.qty>0)applyStockMove(i,'in','บันทึกรายจ่าย '+date);});
+  ii.forEach(i=>{if(i.qty>0)applyStockMove(i,'out','บันทึกรายรับ '+date);});
+  queueSync('daily',[entry]);
+  resetFinForm();showToast('บันทึก','✅ บันทึก + อัปเดตสต๊อก'+(gsOn?' + ส่งไป Sheets':''));
+}
+// ── UNIT CONVERSION (dual-unit support) ──
+// Given a product and a qty/unit (as entered by the user), return the quantity
+// expressed in the product's base unit (p.unit). Uses, in order:
+//   1) no-op if units already match (or no unit given)
+//   2) the product's own packUnit + packSize (e.g. 1 กล่อง = 90 ซอง)
+//   3) unitRules keyed by product name (same-name conversions)
+// Returns {qty:<number>, converted:<bool>, factor:<number>}; factor is the
+// multiplier applied (input*factor = base). Returns factor:null when no rule
+// was found — callers can then fall back to the raw qty.
+function convertToBaseQty(p,qty,unit){
+  const n=Number(qty)||0;
+  const u=(unit||'').trim();
+  const base=(p&&p.unit||'').trim();
+  if(!n)return{qty:0,converted:false,factor:1};
+  if(!u||!base||u===base)return{qty:n,converted:false,factor:1};
+  // Product-level pack rule: 1 packUnit = packSize base units
+  if(p.packUnit&&p.packSize>0&&u===p.packUnit){
+    return{qty:n*p.packSize,converted:true,factor:p.packSize};
+  }
+  if(p.packUnit&&p.packSize>0&&u===base+''&&p.packUnit===base){
+    return{qty:n,converted:false,factor:1};
+  }
+  // Global unitRules (same name)
+  const direct=unitRules.find(r=>r.fromName===p.name&&r.toName===p.name&&r.fromUnit===u&&r.toUnit===base&&Number(r.fromQty)>0);
+  if(direct){const f=Number(direct.toQty)/Number(direct.fromQty);return{qty:n*f,converted:true,factor:f};}
+  const rev=unitRules.find(r=>r.fromName===p.name&&r.toName===p.name&&r.fromUnit===base&&r.toUnit===u&&Number(r.toQty)>0);
+  if(rev){const f=Number(rev.fromQty)/Number(rev.toQty);return{qty:n*f,converted:true,factor:f};}
+  // No rule found — caller decides fallback
+  return{qty:n,converted:false,factor:null};
+}
+// Display helper: dual-unit stock text for a product
+// Returns {base, baseUnit, packLabel} where packLabel is e.g. "1 กล่อง + 6 ซอง" or ''.
+function formatDualStock(p){
+  const base=Number(p&&p.stock||0);
+  const baseUnit=(p&&p.unit)||'';
+  let packLabel='';
+  if(p&&p.packUnit&&Number(p.packSize)>0){
+    const size=Number(p.packSize);
+    const absBase=Math.abs(base);
+    const sign=base<0?'-':'';
+    const wholePacks=Math.floor(absBase/size);
+    const leftover=Math.round((absBase-wholePacks*size)*100)/100;
+    if(wholePacks>0&&leftover>0)packLabel=sign+fmt(wholePacks)+' '+p.packUnit+' + '+fmt(leftover)+' '+baseUnit;
+    else if(wholePacks>0)packLabel=sign+fmt(wholePacks)+' '+p.packUnit;
+    else if(leftover>0)packLabel=''; // already shown as base qty — no pack label needed
+  }
+  return{base,baseUnit,packLabel};
+}
+function applyStockMove(item,kind,note){
+  if(!item.name)return;
+  let p=products.find(x=>x.name===item.name&&x.category===item.category);
+  if(!p){
+    p={id:prodKey(item.category||'other',item.name),category:item.category||'other',name:item.name,unit:item.unit||'ชิ้น',price:item.price||0,cost:item.price||0,reorder:0,stock:0,updatedAt:Date.now()};
+    products.push(p);
+  }
+  const inputQty=Number(item.qty)||0;
+  const inputUnit=(item.unit||'').trim();
+  // Convert input units to product base unit so stock is always stored in base.
+  const conv=convertToBaseQty(p,inputQty,inputUnit);
+  const qty=conv.factor==null?inputQty:conv.qty;
+  const before=p.stock||0;
+  const after=kind==='in'?before+qty:before-qty;
+  p.stock=after;
+  p.updatedAt=Date.now();
+  // Per-base cost: if the user paid for a pack, divide by converted base qty
+  // so inventory value and "฿/หน่วย" reflect the base unit, not the pack unit.
+  if(kind==='in'){
+    const totalCost=Number(item.total)||(inputQty*(Number(item.price)||0));
+    if(totalCost>0&&qty>0)p.cost=totalCost/qty;
+    else if(item.price)p.cost=Number(item.price)||p.cost;
+  }
+  if(item.photo){
+    if(kind==='in'&&item.photo!==p.image)p.image=item.photo;
+    if(!p.image)p.image=item.photo;
+  }
+  // Build a note that records the original input units when a conversion happened,
+  // so the history makes the pack→base relationship visible.
+  let finalNote=note||'';
+  if(conv.converted&&inputUnit&&inputUnit!==p.unit){
+    const extra=fmt(inputQty)+' '+inputUnit+' = '+fmt(qty)+' '+p.unit;
+    finalNote=finalNote?finalNote+' · '+extra:extra;
+  }
+  const mv={ts:Date.now(),id:p.id,name:p.name,kind:kind==='in'?'รับเข้า':'ตัดออก',qty,unit:p.unit,before,after,note:finalNote,category:p.category};
+  if(conv.converted){mv.qtyIn=inputQty;mv.unitIn=inputUnit;}
+  if(item.photo)mv.image=item.photo;
+  movements.unshift(mv);
+  if(movements.length>300)movements.length=300;
+  saveInv();updateInvKPI();
+  queueSync('movement',[mv]);
+  queueSync('inventory',[p]);
+  try{if(!item.__skipJuiceAuto)applyJuiceFromMove(p,kind,qty);}catch(e){}
+}
+// ── JUICE AUTO-TRACKING ─────────────────────────────────────────────
+// Whenever a product flows in/out, if it converts to น้ำส้มStock ml via
+// the unit rules, adjust the juice tank (stockVol) automatically — so a
+// sale of "น้ำส้มขวดกลมเรียบ 1000 ml × 100 ขวด" deducts ~102,000 ml from
+// the shared tank without any manual button press.
+function applyJuiceFromMove(p,kind,baseQty){
+  if(!p||!p.name)return;
+  const alias=loadUnitMainAlias();
+  const MAIN=(alias&&alias.name)||'น้ำส้มStock';
+  if(p.name===MAIN)return;
+  // empty-bottle SKUs have a ml-conversion rule for capacity reference,
+  // but they do NOT represent juice flow — skip so buying/selling empty
+  // bottles never touches the juice tank.
+  if(/^ขวดเปล่า/.test(p.name))return;
+  if(!Array.isArray(unitRules)||!unitRules.length)return;
+  const baseUnit=(p.unit||'').trim();
+  let rule=unitRules.find(r=>r.fromName===p.name&&r.toName===MAIN&&r.toUnit==='ml'&&r.fromUnit===baseUnit);
+  if(!rule)rule=unitRules.find(r=>r.fromName===p.name&&r.toName===MAIN&&r.toUnit==='ml');
+  if(!rule)return;
+  const factor=Number(rule.toQty)/Number(rule.fromQty);
+  if(!isFinite(factor)||factor<=0)return;
+  const ml=Math.round(Number(baseQty||0)*factor);
+  if(!ml)return;
+  if(!stockVol)stockVol={items:[],history:[]};
+  if(!Array.isArray(stockVol.items))stockVol.items=[];
+  if(!Array.isArray(stockVol.history))stockVol.history=[];
+  if(!stockVol.items.length)return;
+  const sign=(kind==='out')?-1:1;
+  let remain=ml;
+  let firstBucket='';
+  for(const b of stockVol.items){
+    if(!remain)break;
+    const cur=Number(b.currentMl)||0;
+    const cap=Number(b.capacityMl)||800000;
+    let used=0;
+    if(sign<0){used=Math.min(cur,remain);b.currentMl=cur-used;}
+    else{used=Math.min(Math.max(0,cap-cur),remain);b.currentMl=cur+used;}
+    if(used){if(!firstBucket)firstBucket=b.id;remain-=used;}
+  }
+  const applied=ml-remain;
+  if(applied>0){
+    stockVol.history.push({
+      ts:Date.now(),bucketId:firstBucket,
+      delta:sign<0?-applied:applied,
+      note:(kind==='out'?'ขาย ':'รับคืน ')+p.name+' × '+fmt(baseQty)+' '+baseUnit+' → '+fmt(applied)+' ml'+(remain?' (ขาด '+fmt(remain)+' ml)':''),
+    });
+  }
+  saveStockVol();
+  try{renderStockBuckets();}catch(e){}
+  stockVol.items.forEach(b=>{
+    if(b.threshold&&(Number(b.currentMl)||0)<=b.threshold){
+      try{showToast('⚠️ น้ำส้มใกล้หมด',b.name+' เหลือ '+fmt(b.currentMl)+' ml');}catch(e){}
+    }
+  });
+  if(remain&&sign<0){
+    try{showToast('⚠️ น้ำส้มไม่พอ','ขาด '+fmt(remain)+' ml ('+p.name+')');}catch(e){}
+  }
+}
+// Manual ml adjustment for the shared juice tank — used when a sale line
+// carries an explicit "ปริมาณน้ำส้มStock (ml)" value (sign=-1 deducts, sign=+1 refunds).
+function applyManualJuiceMl(mlInput,sign,noteText){
+  const ml=Math.round(Number(mlInput)||0);
+  if(!ml)return;
+  if(!stockVol)stockVol={items:[],history:[]};
+  if(!Array.isArray(stockVol.items))stockVol.items=[];
+  if(!Array.isArray(stockVol.history))stockVol.history=[];
+  if(!stockVol.items.length){
+    try{showToast('⚠️ ยังไม่มีถังสต๊อกน้ำส้ม','เพิ่มถังก่อนจึงจะหัก ml ได้');}catch(e){}
+    return;
+  }
+  let remain=ml;
+  let firstBucket='';
+  for(const b of stockVol.items){
+    if(!remain)break;
+    const cur=Number(b.currentMl)||0;
+    const cap=Number(b.capacityMl)||800000;
+    let used=0;
+    if(sign<0){used=Math.min(cur,remain);b.currentMl=cur-used;}
+    else{used=Math.min(Math.max(0,cap-cur),remain);b.currentMl=cur+used;}
+    if(used){if(!firstBucket)firstBucket=b.id;remain-=used;}
+  }
+  const applied=ml-remain;
+  if(applied>0){
+    stockVol.history.push({
+      ts:Date.now(),bucketId:firstBucket,
+      delta:sign<0?-applied:applied,
+      note:(noteText||'ปรับน้ำส้ม (ระบุเอง)')+' → '+fmt(applied)+' ml'+(remain?' (ขาด '+fmt(remain)+' ml)':''),
+    });
+  }
+  saveStockVol();
+  try{renderStockBuckets();}catch(e){}
+  stockVol.items.forEach(b=>{
+    if(b.threshold&&(Number(b.currentMl)||0)<=b.threshold){
+      try{showToast('⚠️ น้ำส้มใกล้หมด',b.name+' เหลือ '+fmt(b.currentMl)+' ml');}catch(e){}
+    }
+  });
+  if(remain&&sign<0){
+    try{showToast('⚠️ น้ำส้มไม่พอ','ขาด '+fmt(remain)+' ml (ระบุเอง)');}catch(e){}
+  }
+}
+// ── RECONCILIATION: juice & packaging ───────────────────────────────
+// Cross-checks brews vs sales vs tank balance, flags discrepancies, and
+// lists sold-juice SKUs that have no conversion rule (so their volume
+// would otherwise be untracked).
+function computeJuiceReconcile(){
+  const alias=loadUnitMainAlias();
+  const MAIN=(alias&&alias.name)||'น้ำส้มStock';
+  const ruleFor=name=>unitRules.find(r=>r.fromName===name&&r.toName===MAIN&&r.toUnit==='ml');
+  let totalBrewed=0,totalHistDelta=0;
+  (stockVol.history||[]).forEach(h=>{
+    const d=Number(h.delta)||0;
+    if(d>0&&/ผลิต/.test(h.note||''))totalBrewed+=d;
+    totalHistDelta+=d;
+  });
+  let expectedSoldMl=0;const missing=[];const saleRows=[];
+  rooms.forEach(r=>{
+    if(r.isCategory||!Array.isArray(r.sales))return;
+    r.sales.forEach(s=>{
+      const rule=ruleFor(s.name);
+      if(!rule){
+        if(/น้ำส้ม/.test(s.name||'')&&!/ขวดเปล่า/.test(s.name||''))missing.push(s.name);
+        return;
+      }
+      const factor=Number(rule.toQty)/Number(rule.fromQty);
+      const ml=Math.round(Number(s.qty||0)*factor);
+      expectedSoldMl+=ml;
+      saleRows.push({name:s.name,qty:s.qty,ml,room:r.name,date:s.date});
+    });
+  });
+  const currentMl=(stockVol.items||[]).reduce((a,b)=>a+(Number(b.currentMl)||0),0);
+  const expectedMl=Math.max(0,totalBrewed-expectedSoldMl);
+  const diff=currentMl-expectedMl;
+  return{currentMl,expectedMl,totalBrewed,totalHistDelta,expectedSoldMl,diff,missing:[...new Set(missing)],saleRows};
+}
+async function runLocalReconcile(){
+  const r=computeJuiceReconcile();
+  const bal=Math.abs(r.diff)<1000?'✅ สมดุล':'⚠️ ไม่ตรง';
+  const lines=[
+    'ผลิตรวม (จากประวัติ): '+fmt(r.totalBrewed)+' ml',
+    'ยอดขายคำนวณจากห้อง: '+fmt(Math.round(r.expectedSoldMl))+' ml',
+    'คงเหลือจริงในถัง: '+fmt(r.currentMl)+' ml',
+    'ควรเหลือ: '+fmt(Math.round(r.expectedMl))+' ml',
+    'ส่วนต่าง: '+fmt(Math.round(r.diff))+' ml '+bal,
+  ];
+  if(r.missing.length)lines.push('','สินค้าที่ยังไม่มีกฎแลกเปลี่ยน (ml):','• '+r.missing.join('\n• '));
+  alert('🧮 ตรวจสอบยอดน้ำส้ม\n\n'+lines.join('\n'));
+}
+function resetFinForm(){
+  document.getElementById('exp-items').innerHTML='';document.getElementById('inc-items').innerHTML='';
+  ec=0;ic=0;calcFin();addRow('exp');addRow('inc');
+}
+function safeSaveFin(){
+  try{saveFin();if(typeof refreshSomsodIfActive==='function')refreshSomsodIfActive();return true;}
+  catch(e){
+    const quota=e&&(e.name==='QuotaExceededError'||/quota/i.test(e.message||''));
+    alert(quota
+      ? 'พื้นที่จัดเก็บของเบราว์เซอร์เต็มจากการเก็บรูปภาพ — กรุณาลบรูปเก่าหรือถ่ายรูปใหม่ให้เล็กลง'
+      : 'บันทึกข้อมูลไม่สำเร็จ: '+(e.message||e));
+    return false;
+  }
+}
+function updateMetrics(){
+  const mInc=document.getElementById('m-inc');
+  if(!mInc)return;
+  const inc=finEntries.reduce((s,e)=>s+e.incTotal,0);
+  const exp=finEntries.reduce((s,e)=>s+e.expTotal,0);
+  const net=inc-exp;
+  mInc.textContent='฿'+fmt(inc);
+  document.getElementById('m-exp').textContent='฿'+fmt(exp);
+  const nel=document.getElementById('m-net');
+  nel.textContent=(net<0?'-':'')+'฿'+fmt(Math.abs(net));
+  nel.style.color=net>=0?'var(--inc-text)':'var(--exp-text)';
+  if(currentApp==='feed')renderFeed();
+}
+function switchFTab(t,btn){
+  document.querySelectorAll('.ftab').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
+  document.querySelectorAll('.fsection').forEach(s=>s.classList.remove('active'));
+  document.getElementById('ftab-'+t).classList.add('active');
+  if(t==='list')renderList();
+  if(t==='summary')renderSummary();
+}
+function renderList(){
+  const el=document.getElementById('entries-list');
+  if(!el)return;
+  const month=document.getElementById('filter-month').value;
+  const q=(document.getElementById('search').value||'').toLowerCase();
+  let list=[...finEntries].filter(e=>{
+    const mo=!month||e.date.startsWith(month);
+    const qo=!q||[...e.expItems,...e.incItems].some(i=>i.name.toLowerCase().includes(q));
+    return mo&&qo;
+  }).sort((a,b)=>b.date.localeCompare(a.date));
+  if(!list.length){el.innerHTML='<div class="empty">ไม่พบรายการ</div>';return;}
+  const renderItem=(i,kind)=>{
+    const cls=kind==='exp'?'exp':'inc';
+    const photo=i.photo?`<img class="ditem-photo" src="${i.photo}" alt="รูปรายการ" onclick="event.stopPropagation();openLightbox(this.src)"/>`:'';
+    return `<div class="ditem"><span>${escHtml(i.name)}${i.qty?' ×'+i.qty:''}${photo}</span><span class="dam ${cls}">฿${fmt(i.total)}</span></div>`;
+  };
+  el.innerHTML=list.map(e=>{
+    // legacy entry-level photos (older entries, before per-item photos)
+    const legacyPhotos=Array.isArray(e.photos)?e.photos.filter(Boolean):[];
+    const itemPhotoCount=(e.expItems||[]).filter(i=>i.photo).length+(e.incItems||[]).filter(i=>i.photo).length;
+    const photoCount=legacyPhotos.length+itemPhotoCount;
+    const showN=Math.min(legacyPhotos.length,6);
+    const photosHtml=legacyPhotos.length
+      ? `<div class="day-photos">${legacyPhotos.slice(0,showN).map(p=>`<img src="${p}" alt="หลักฐาน" onclick="event.stopPropagation();openLightbox(this.src)"/>`).join('')}${legacyPhotos.length>showN?`<span class="more">+${legacyPhotos.length-showN}</span>`:''}</div>`
+      : '';
+    return `
+    <div class="day-card">
+      <div class="day-hdr" onclick="toggleDay('d${e.id}',this)">
+        <div class="day-date">${fmtDate(e.date)}${photoCount?` <span class="inline-pill" style="background:#eff6ff;color:#1d4ed8">📎 ${photoCount}</span>`:''} <span class="chevron" id="chev${e.id}">▼</span></div>
+        <div class="day-badges">
+          ${e.expTotal?`<span class="bdg-exp">จ่าย ฿${fmt(e.expTotal)}</span>`:''}
+          ${e.incTotal?`<span class="bdg-inc">รับ ฿${fmt(e.incTotal)}</span>`:''}
+          <span class="bdg-net ${e.net>=0?'pos':'neg'}">${e.net>=0?'+':'-'}฿${fmt(Math.abs(e.net))}</span>
+          <button class="edit-btn" onclick="event.stopPropagation();editEntry(${e.id})">แก้ไข</button>
+          <button class="del-btn" onclick="event.stopPropagation();delEntry(${e.id})">ลบ</button>
+        </div>
+      </div>
+      <div class="day-body" id="d${e.id}">
+        <div class="day-grid">
+          <div><div class="dsec-title exp">รายจ่าย</div>${(e.expItems||[]).map(i=>renderItem(i,'exp')).join('')||'<div style="font-size:11px;color:var(--muted)">-</div>'}</div>
+          <div><div class="dsec-title inc">รายรับ</div>${(e.incItems||[]).map(i=>renderItem(i,'inc')).join('')||'<div style="font-size:11px;color:var(--muted)">-</div>'}</div>
+        </div>
+        ${photosHtml}
+      </div>
+    </div>`;
+  }).join('');
+}
+function toggleDay(id){const b=document.getElementById(id);const ch=document.getElementById('chev'+id.replace('d',''));b.classList.toggle('open');if(ch)ch.classList.toggle('open');}
+async function delEntry(id){if(!(await requireAdmin('ลบรายการรายรับ-รายจ่ายที่บันทึกไว้แล้ว')))return;if(!confirm('ลบรายการนี้?'))return;finEntries=finEntries.filter(e=>e.id!==id);if(editingId===id){editingId=null;hideEditBanner();resetFinForm();}saveFin();updateMetrics();renderList();}
+async function editEntry(id){
+  if(!(await requireAdmin('แก้ไขรายการรายรับ-รายจ่ายที่บันทึกไว้แล้ว')))return;
+  const entry=finEntries.find(e=>e.id===id);
+  if(!entry){alert('ไม่พบรายการ');return;}
+  editingId=id;
+  switchFTabById('add');
+  document.getElementById('f-date').value=entry.date;
+  document.getElementById('exp-items').innerHTML='';
+  document.getElementById('inc-items').innerHTML='';
+  ec=0;ic=0;
+  (entry.expItems||[]).forEach(it=>addRowWithData('exp',it));
+  (entry.incItems||[]).forEach(it=>addRowWithData('inc',it));
+  if(!(entry.expItems||[]).length)addRow('exp');
+  if(!(entry.incItems||[]).length)addRow('inc');
+  calcFin();
+  showEditBanner(entry.date);
+  const addTab=document.getElementById('ftab-add');
+  if(addTab&&addTab.scrollIntoView)addTab.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function cancelEditEntry(){
+  editingId=null;hideEditBanner();resetFinForm();showToast('ยกเลิก','ยกเลิกการแก้ไขแล้ว');
+}
+function showEditBanner(date){
+  const b=document.getElementById('edit-banner');
+  const d=document.getElementById('eb-date');
+  if(d)d.textContent=fmtDate(date);
+  if(b)b.classList.add('show');
+}
+function hideEditBanner(){
+  const b=document.getElementById('edit-banner');if(b)b.classList.remove('show');
+}
+function switchFTabById(t){
+  const btns=document.querySelectorAll('.ftab');
+  btns.forEach(b=>b.classList.remove('active'));
+  const map={add:0,list:1,summary:2};
+  const idx=map[t];if(idx!=null&&btns[idx])btns[idx].classList.add('active');
+  document.querySelectorAll('.fsection').forEach(s=>s.classList.remove('active'));
+  const sec=document.getElementById('ftab-'+t);if(sec)sec.classList.add('active');
+  if(t==='list')renderList();
+  if(t==='summary')renderSummary();
+}
+function addRowWithData(type,item){
+  addRow(type);
+  const c=document.getElementById(type+'-items');
+  const row=c.lastElementChild;
+  if(!row)return;
+  const ins=row.querySelectorAll('input:not([type=file])');
+  const qtyI=ins[0],unitI=ins[1],priceI=ins[2];
+  const cat=item.category||'other';
+  const name=item.name||'';
+  if(name){
+    row.dataset.category=cat;row.dataset.name=name;
+    const cbox=row.querySelector('.cbox');
+    if(cbox){
+      cbox.dataset.catId=cat;cbox.dataset.name=name;
+      const trig=cbox.querySelector('.cbox-trigger');
+      if(trig){trig.textContent=name;trig.classList.remove('placeholder');}
+    }
+  }
+  if(item.qty!=null)qtyI.value=item.qty;
+  if(item.unit)unitI.value=item.unit;
+  if(item.price!=null)priceI.value=item.price;
+  if(item.photo)setItemPhoto(row.id,item.photo);
+}
+function renderSummary(){
+  const em={},im={},mm={};
+  finEntries.forEach(e=>{
+    const mk=e.date.slice(0,7);if(!mm[mk])mm[mk]={inc:0,exp:0};
+    mm[mk].inc+=e.incTotal;mm[mk].exp+=e.expTotal;
+    e.expItems.forEach(i=>{if(i.name)em[i.name]=(em[i.name]||0)+i.total;});
+    e.incItems.forEach(i=>{if(i.name)im[i.name]=(im[i.name]||0)+i.total;});
+  });
+  const mkR=(obj,col)=>Object.entries(obj).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([k,v])=>`<div class="sum-row"><span>${k}</span><span style="font-weight:600;color:${col}">฿${fmt(v)}</span></div>`).join('')||'<div class="empty" style="padding:.5rem">ยังไม่มีข้อมูล</div>';
+  document.getElementById('top-exp').innerHTML=mkR(em,'var(--exp-label)');
+  document.getElementById('top-inc').innerHTML=mkR(im,'var(--inc-label)');
+  document.getElementById('monthly-sum').innerHTML=Object.entries(mm).sort((a,b)=>b[0].localeCompare(a[0])).map(([k,v])=>{
+    const net=v.inc-v.exp;const[y,m]=k.split('-');
+    return`<div class="sum-row"><span>${['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'][+m-1]} ${+y+543}</span><div style="display:flex;gap:10px;font-size:11px"><span style="color:var(--exp-label)">จ่าย ฿${fmt(v.exp)}</span><span style="color:var(--inc-label)">รับ ฿${fmt(v.inc)}</span><span style="font-weight:600;color:${net>=0?'var(--inc-label)':'var(--exp-label)'}">${net>=0?'+':'-'}฿${fmt(Math.abs(net))}</span></div></div>`;
+  }).join('')||'<div class="empty" style="padding:.5rem">ยังไม่มีข้อมูล</div>';
+}
+
+// EXPORT / IMPORT
+function toggleEmenu(){document.getElementById('emenu').classList.toggle('open');}
+function exportJSON(){
+  if(!finEntries.length){alert('ไม่มีข้อมูล');return;}
+  const blob=new Blob([JSON.stringify(finEntries,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='รายรับ-รายจ่าย-สำรอง-'+new Date().toISOString().slice(0,10)+'.json';a.click();
+}
+function exportCSV(){
+  if(!finEntries.length){alert('ไม่มีข้อมูล');return;}
+  const sorted=[...finEntries].sort((a,b)=>a.date.localeCompare(b.date));
+  let rows=['\uFEFF'+'วันที่,ประเภท,รายการ,จำนวน,หน่วย,ราคา,ยอดรวม'];
+  sorted.forEach(e=>{
+    e.expItems.forEach(i=>rows.push([e.date,'รายจ่าย','"'+i.name+'"',i.qty||'',i.unit||'',i.price||'',i.total||''].join(',')));
+    e.incItems.forEach(i=>rows.push([e.date,'รายรับ','"'+i.name+'"',i.qty||'',i.unit||'',i.price||'',i.total||''].join(',')));
+  });
+  const blob=new Blob([rows.join('\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='รายรับ-รายจ่าย-'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+}
+function exportXLSX(){
+  if(!finEntries.length){alert('ไม่มีข้อมูล');return;}
+  if(typeof XLSX==='undefined'){alert('กรุณารอโหลด library');return;}
+  const rows=[['วันที่','ประเภท','รายการ','จำนวน','หน่วย','ราคา/ชิ้น','ยอดรวม']];
+  const sorted=[...finEntries].sort((a,b)=>a.date.localeCompare(b.date));
+  sorted.forEach(e=>{
+    e.expItems.forEach(i=>rows.push([e.date,'รายจ่าย',i.name,i.qty||'',i.unit||'',i.price||'',i.total||'']));
+    e.incItems.forEach(i=>rows.push([e.date,'รายรับ',i.name,i.qty||'',i.unit||'',i.price||'',i.total||'']));
+  });
+  const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:12},{wch:8},{wch:26},{wch:8},{wch:8},{wch:10},{wch:10}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'รายรับ-รายจ่าย');
+  XLSX.writeFile(wb,'รายรับ-รายจ่าย-'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+function exportPrint(){
+  if(!finEntries.length){alert('ไม่มีข้อมูล');return;}
+  const sorted=[...finEntries].sort((a,b)=>a.date.localeCompare(b.date));
+  let totalExp=0,totalInc=0,rows='';
+  sorted.forEach(e=>{
+    e.expItems.forEach(i=>{totalExp+=i.total||0;rows+=`<tr><td>${fmtDate(e.date)}</td><td style="color:#993c1d">รายจ่าย</td><td>${i.name}</td><td>${i.qty||''}</td><td>${i.unit||''}</td><td style="text-align:right">${i.price?'฿'+Number(i.price).toLocaleString('th-TH'):''}</td><td style="text-align:right;color:#993c1d">฿${Number(i.total||0).toLocaleString('th-TH')}</td></tr>`;});
+    e.incItems.forEach(i=>{totalInc+=i.total||0;rows+=`<tr><td>${fmtDate(e.date)}</td><td style="color:#085041">รายรับ</td><td>${i.name}</td><td>${i.qty||''}</td><td>${i.unit||''}</td><td style="text-align:right">${i.price?'฿'+Number(i.price).toLocaleString('th-TH'):''}</td><td style="text-align:right;color:#085041">฿${Number(i.total||0).toLocaleString('th-TH')}</td></tr>`;});
+  });
+  const net=totalInc-totalExp;
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>รายรับ-รายจ่าย</title><style>body{font-family:sans-serif;font-size:12px;padding:20px}table{width:100%;border-collapse:collapse}th{background:#185fa5;color:#fff;padding:7px 8px;text-align:left;font-size:11px}td{padding:5px 8px;border-bottom:1px solid #e5e7eb;font-size:11px}.tfoot td{font-weight:700;background:#f0f7ff;border-top:2px solid #185fa5}.pbtn{margin-bottom:14px;padding:7px 16px;background:#185fa5;color:#fff;border:none;border-radius:6px;cursor:pointer}@media print{.pbtn{display:none}}</style></head><body><h2 style="margin-bottom:12px">รายรับ–รายจ่าย 2569</h2><button class="pbtn" onclick="window.print()">🖨️ พิมพ์</button><table><thead><tr><th>วันที่</th><th>ประเภท</th><th>รายการ</th><th>จำนวน</th><th>หน่วย</th><th>ราคา/ชิ้น</th><th>ยอดรวม</th></tr></thead><tbody>${rows}</tbody><tfoot><tr class="tfoot"><td colspan="6">รายจ่ายรวม</td><td style="text-align:right;color:#993c1d">฿${totalExp.toLocaleString('th-TH')}</td></tr><tr class="tfoot"><td colspan="6">รายรับรวม</td><td style="text-align:right;color:#085041">฿${totalInc.toLocaleString('th-TH')}</td></tr><tr class="tfoot"><td colspan="6">กำไร/ขาดทุน</td><td style="text-align:right;color:${net>=0?'#085041':'#993c1d'}">${net>=0?'+':''}฿${net.toLocaleString('th-TH')}</td></tr></tfoot></table></body></html>`;
+  const w=window.open('','_blank');if(w){w.document.write(html);w.document.close();}
+}
+function importFile(event){
+  const files=[...event.target.files];if(!files.length)return;
+  let pending=files.length,allNew=0,allErrors=[];
+  files.forEach(file=>{
+    const ext=file.name.split('.').pop().toLowerCase();
+    if(ext==='json'){
+      const r=new FileReader();r.onload=e=>{
+        try{const data=JSON.parse(e.target.result);if(!Array.isArray(data))throw new Error('ไฟล์ไม่ถูกต้อง');allNew+=mergeFin(data);}
+        catch(err){allErrors.push(file.name+': '+err.message);}
+        if(--pending===0)finishImport(allNew,allErrors);
+      };r.readAsText(file);
+    }else if(ext==='csv'){
+      const r=new FileReader();r.onload=e=>{
+        try{allNew+=mergeFin(parseCSV(e.target.result));}catch(err){allErrors.push(file.name+': '+err.message);}
+        if(--pending===0)finishImport(allNew,allErrors);
+      };r.readAsText(file,'UTF-8');
+    }else if(ext==='xlsx'||ext==='xls'){
+      const r=new FileReader();r.onload=e=>{
+        try{
+          if(typeof XLSX==='undefined')throw new Error('กรุณารอโหลด library');
+          const wb=XLSX.read(e.target.result,{type:'array'});let data=[];
+          wb.SheetNames.forEach(sn=>{data=data.concat(parseXLSXRows(XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:''})));});
+          allNew+=mergeFin(data);
+        }catch(err){allErrors.push(file.name+': '+err.message);}
+        if(--pending===0)finishImport(allNew,allErrors);
+      };r.readAsArrayBuffer(file);
+    }else{allErrors.push(file.name+': ไม่รองรับ');if(--pending===0)finishImport(allNew,allErrors);}
+  });
+  event.target.value='';
+}
+function mergeFin(data){const ids=new Set(finEntries.map(e=>String(e.id)));const n=data.filter(e=>e&&e.date&&!ids.has(String(e.id)));finEntries=[...finEntries,...n].sort((a,b)=>b.date.localeCompare(a.date));saveFin();updateMetrics();return n.length;}
+function finishImport(added,errors){let msg='✅ นำเข้าสำเร็จ เพิ่ม '+added+' รายการ';if(errors.length)msg+='\n⚠️ '+errors.join('\n');alert(msg);}
+function parseCSV(text){
+  const lines=text.replace(/\r/g,'').split('\n').filter(l=>l.trim());if(lines.length<2)return[];
+  const headers=lines[0].split(',').map(h=>h.trim());
+  const di=headers.findIndex(h=>h.includes('วันที่')||h.toLowerCase()==='date');
+  const ti=headers.findIndex(h=>h.includes('ประเภท'));
+  const ni=headers.findIndex(h=>h.includes('รายการ'));
+  const qi=headers.findIndex(h=>h.includes('จำนวน'));
+  const ui=headers.findIndex(h=>h.includes('หน่วย'));
+  const pi=headers.findIndex(h=>h.includes('ราคา'));
+  const toi=headers.findIndex(h=>h.includes('ยอดรวม'));
+  if(di<0||ni<0)throw new Error('ไม่พบคอลัมน์ที่จำเป็น');
+  const grouped={};
+  lines.slice(1).forEach(line=>{
+    const cols=line.split(',');
+    const date=normalizeDate(cols[di]?.trim());const name=(cols[ni]?.trim()||'').replace(/^"|"$/g,'');
+    if(!date||!name)return;
+    if(!grouped[date])grouped[date]={date,expItems:[],incItems:[],expTotal:0,incTotal:0,net:0,id:Date.now()+Math.random()};
+    const type=cols[ti]?.trim()||'รายจ่าย';
+    const item={name,qty:parseFloat(cols[qi])||0,unit:cols[ui]?.trim()||'',price:parseFloat(cols[pi])||0,total:parseFloat(cols[toi])||0};
+    if(type.includes('รับ')){grouped[date].incItems.push(item);grouped[date].incTotal+=item.total;}
+    else{grouped[date].expItems.push(item);grouped[date].expTotal+=item.total;}
+  });
+  return Object.values(grouped).map(e=>{e.net=e.incTotal-e.expTotal;return e;});
+}
+function parseXLSXRows(rows){
+  const grouped={};
+  rows.forEach(row=>{
+    const dateRaw=String(row['วันที่']||row['date']||'');const name=String(row['รายการ']||row['name']||'');
+    if(!dateRaw||!name)return;
+    const date=normalizeDate(dateRaw);if(!date)return;
+    if(!grouped[date])grouped[date]={date,expItems:[],incItems:[],expTotal:0,incTotal:0,net:0,id:Date.now()+Math.random()};
+    const type=String(row['ประเภท']||'รายจ่าย');
+    const total=parseFloat(row['ยอดรวม']||row['total']||0);
+    const item={name,qty:parseFloat(row['จำนวน']||0),unit:String(row['หน่วย']||''),price:parseFloat(row['ราคา']||0),total};
+    if(type.includes('รับ')){grouped[date].incItems.push(item);grouped[date].incTotal+=total;}
+    else{grouped[date].expItems.push(item);grouped[date].expTotal+=total;}
+  });
+  return Object.values(grouped).map(e=>{e.net=e.incTotal-e.expTotal;return e;});
+}
+function normalizeDate(d){
+  if(!d)return null;
+  if(/^\d{5}$/.test(d.trim())){return new Date((parseInt(d)-25569)*86400*1000).toISOString().slice(0,10);}
+  const th=d.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if(th){let[,day,month,year]=th;if(+year>2400)year=String(+year-543);return`${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`;}
+  if(/^\d{4}-\d{2}-\d{2}$/.test(d))return d;
+  return null;
+}
+
+// INVENTORY
+function saveInv(){saveLS('org_products',products);saveLS('org_movements',movements);scheduleAppStatePush('inventory');}
+function saveCategories(){saveLS('org_cats',CATEGORIES);scheduleAppStatePush('categories');buildDatalists();const pi=document.getElementById('page-inventory');if(pi&&pi.classList.contains('active'))renderInventory();}
+function catLabel(id){const c=CATEGORIES.find(x=>x.id===id);return c?(c.icon+' '+c.name):'📦 '+(id||'อื่นๆ');}
+
+// ── CATEGORY MANAGER ──
+async function openCategoryManager(){
+  if(!(await requireAdmin('จัดการหมวดหมู่สินค้า (เพิ่ม / ลบ / แก้ไข)')))return;
+  renderCategoryManager();
+  document.getElementById('new-cat-icon').value='';
+  document.getElementById('new-cat-name').value='';
+  document.getElementById('ov-cats').classList.add('open');
+}
+function renderCategoryManager(){
+  const el=document.getElementById('cat-list');
+  if(!CATEGORIES.length){el.innerHTML='<div class="empty" style="padding:14px">ยังไม่มีหมวดหมู่ — เพิ่มด้านล่าง</div>';return;}
+  el.innerHTML=CATEGORIES.map(c=>{
+    const used=products.filter(p=>p.category===c.id).length;
+    const cid=escAttr(c.id);
+    return `<div class="cat-mgr-row" data-id="${cid}">
+      <input class="cat-ico-inp" maxlength="4" value="${escAttr(c.icon||'📦')}" oninput="updateCategoryField('${cid}','icon',this.value)" aria-label="ไอคอน"/>
+      <input class="cat-name-inp" value="${escAttr(c.name)}" oninput="updateCategoryField('${cid}','name',this.value)" aria-label="ชื่อหมวดหมู่"/>
+      <span class="cat-usage">${used} สินค้า</span>
+      <button class="cat-del-btn" onclick="deleteCategory('${cid}')" title="ลบหมวดหมู่">🗑️</button>
+    </div>`;
+  }).join('');
+}
+function updateCategoryField(id,field,value){
+  const c=CATEGORIES.find(x=>x.id===id);if(!c)return;
+  c[field]=String(value||'').slice(0, field==='icon' ? 4 : 50);
+  saveCategories();
+  // Lightweight: update usage counts next paint; skip full re-render to preserve input focus
+}
+function addCategory(){
+  const iconI=document.getElementById('new-cat-icon');
+  const nameI=document.getElementById('new-cat-name');
+  const icon=(iconI.value||'📦').trim().slice(0,4)||'📦';
+  const name=nameI.value.trim();
+  if(!name){alert('กรุณากรอกชื่อหมวดหมู่');nameI.focus();return;}
+  // Generate unique id
+  let id='cat_'+Date.now().toString(36);
+  while(CATEGORIES.find(c=>c.id===id)) id=id+Math.random().toString(36).slice(2,4);
+  CATEGORIES.push({id,icon,name,items:[]});
+  saveCategories();
+  renderCategoryManager();
+  iconI.value='';nameI.value='';nameI.focus();
+  showToast('เพิ่ม','✅ '+icon+' '+name);
+}
+async function deleteCategory(id){
+  if(!(await requireAdmin('ลบหมวดหมู่สินค้า')))return;
+  const c=CATEGORIES.find(x=>x.id===id);if(!c)return;
+  const affected=products.filter(p=>p.category===id);
+  if(affected.length){
+    if(!confirm('หมวดหมู่ "'+c.name+'" มีสินค้า '+affected.length+' รายการ\nสินค้าจะถูกย้ายไป "📦 อื่นๆ" — ยืนยันลบ?'))return;
+    if(!CATEGORIES.find(x=>x.id==='other'))CATEGORIES.push({id:'other',icon:'📦',name:'อื่นๆ',items:[]});
+    affected.forEach(p=>{p.category='other';});
+    saveInv();
+    queueSync('catalog',affected);
+    queueSync('inventory',affected);
+  }else{
+    if(!confirm('ลบหมวดหมู่ "'+c.name+'"?'))return;
+  }
+  CATEGORIES=CATEGORIES.filter(x=>x.id!==id);
+  saveCategories();
+  renderCategoryManager();
+  showToast('ลบแล้ว','🗑️ '+c.name);
+}
+async function resetCategoriesToDefault(){
+  if(!(await requireAdmin('รีเซ็ตหมวดหมู่กลับเป็นค่าเริ่มต้น')))return;
+  if(!confirm('รีเซ็ตรายการหมวดหมู่กลับเป็นค่าเริ่มต้น?\n(สินค้าในคลังจะยังคงอยู่ แต่หมวดหมู่ที่ไม่ตรงจะแสดงเป็น "📦 อื่นๆ")'))return;
+  CATEGORIES=JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
+  saveCategories();
+  renderCategoryManager();
+  showToast('รีเซ็ตแล้ว','🔄 ใช้หมวดหมู่เริ่มต้น');
+}
+function updateInvKPI(){
+  const kpiCount=document.getElementById('kpi-count');
+  if(!kpiCount)return;
+  const count=products.length;
+  const value=products.reduce((s,p)=>s+((p.stock||0)*(p.cost||0)),0);
+  const low=products.filter(p=>(p.reorder||0)>0&&(p.stock||0)<=p.reorder).length;
+  kpiCount.textContent=count;
+  document.getElementById('kpi-value').textContent='฿'+fmt(Math.round(value));
+  const lowEl=document.getElementById('kpi-low');
+  lowEl.textContent=low;lowEl.className='kpi-val '+(low>0?'danger':'');
+  const b=document.getElementById('low-stock-badge');
+  if(b){if(low>0){b.textContent=low;b.style.display='inline';}else b.style.display='none';}
+  const st=document.getElementById('sync-stat'),stt=document.getElementById('sync-stat-txt');
+  const gsBadge=document.getElementById('gs-badge');
+  if(st&&stt){
+    if(gsOn){st.classList.add('on');st.querySelector('.sdot').classList.add('on');stt.textContent='เชื่อมต่อ Google Sheets แล้ว';
+      if(gsBadge)gsBadge.style.display='inline';
+    }else{st.classList.remove('on');st.querySelector('.sdot').classList.remove('on');stt.textContent='ยังไม่ได้เชื่อม Sheets';if(gsBadge)gsBadge.style.display='none';}
+  }else if(gsBadge){gsBadge.style.display=gsOn?'inline':'none';}
+}
+function renderInventory(){
+  const el=document.getElementById('inv-list');
+  if(!el)return;
+  const q=(document.getElementById('inv-search')?.value||'').toLowerCase();
+  const catF=document.getElementById('inv-cat-filter')?.value||'';
+  const filtered=products.filter(p=>(!catF||p.category===catF)&&(!q||p.name.toLowerCase().includes(q)));
+  if(!filtered.length){el.innerHTML='<div class="empty">ยังไม่มีสินค้า</div>';return;}
+  // group by category
+  const groups={};filtered.forEach(p=>{(groups[p.category]||(groups[p.category]=[])).push(p);});
+  const order=CATEGORIES.map(c=>c.id).concat(Object.keys(groups).filter(k=>!CATEGORIES.find(c=>c.id===k)));
+  el.innerHTML=order.filter(k=>groups[k]).map(k=>{
+    const list=groups[k].sort((a,b)=>a.name.localeCompare(b.name));
+    return `<div class="cat-group"><div class="cat-group-title"><span class="cat-ico">${(CATEGORIES.find(c=>c.id===k)?.icon)||'📦'}</span>${escHtml((CATEGORIES.find(c=>c.id===k)?.name)||k)} <span style="color:var(--muted);font-weight:400">(${list.length})</span></div>`+
+      list.map(p=>{
+        const low=(p.reorder||0)>0&&(p.stock||0)<=p.reorder;
+        const thumb=p.image
+          ? `<img class="stock-thumb" src="${p.image}" alt="" onclick="event.stopPropagation();openLightbox(this.src)"/>`
+          : `<div class="stock-thumb empty">📦</div>`;
+        const dual=formatDualStock(p);
+        const packMeta=p.packUnit&&p.packSize>0?` · 1 ${escHtml(p.packUnit)} = ${fmt(p.packSize)} ${escHtml(p.unit||'')}`:'';
+        const packSub=dual.packLabel?`<div class="stock-unit" style="color:#b45309">≈ ${escHtml(dual.packLabel)}</div>`:'';
+        return `<div class="stock-card">
+          ${thumb}
+          <div style="flex:1;min-width:0">
+            <div class="stock-cat">${escHtml(p.unit||'')}${p.cost?' · ฿'+fmt(Math.round((p.cost||0)*100)/100)+'/'+escHtml(p.unit||'หน่วย'):''}${packMeta}${low?'<span class="inline-pill" style="background:#fee2e2;color:#991b1b">ใกล้หมด</span>':''}</div>
+            <div class="stock-name">${escHtml(p.name)}</div>
+          </div>
+          <div class="stock-qty ${low?'low':''}">${fmt(p.stock||0)}<div class="stock-unit">${escHtml(p.unit||'')}</div>${packSub}</div>
+          <div class="stock-actions-grp">
+            <div class="stock-actions">
+              <button class="stock-btn in" onclick="openMove('${p.id}','in')">＋ รับ</button>
+              <button class="stock-btn out" onclick="openMove('${p.id}','out')">－ ออก</button>
+            </div>
+            <div class="stock-actions">
+              <button class="stock-btn edit" onclick="editProduct('${p.id}')" title="แก้ไข">✏️ แก้ไข</button>
+              <button class="stock-btn del" onclick="deleteProduct('${p.id}')" title="ลบ">🗑️ ลบ</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('')+`</div>`;
+  }).join('');
+  if(document.getElementById('inv-count').classList.contains('active'))renderCount();
+  if(document.getElementById('inv-history').classList.contains('active'))renderHistory();
+}
+function switchInvTab(t,btn){
+  document.querySelectorAll('.inv-tab').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
+  document.querySelectorAll('.inv-section').forEach(s=>s.classList.remove('active'));
+  document.getElementById('inv-'+t).classList.add('active');
+  if(t==='count')renderCount();
+  if(t==='history')renderHistory();
+}
+function renderCount(){
+  const today=new Date().toISOString().slice(0,10);
+  document.getElementById('count-date').textContent=fmtDate(today);
+  const el=document.getElementById('count-list');
+  if(!products.length){el.innerHTML='<div class="empty">ยังไม่มีสินค้า</div>';return;}
+  const grouped={};products.forEach(p=>{(grouped[p.category]||(grouped[p.category]=[])).push(p);});
+  el.innerHTML=`<div class="count-row" style="font-weight:700;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border)"><span>สินค้า</span><span style="text-align:right">ในระบบ</span><span>นับจริง</span><span style="text-align:right">ส่วนต่าง</span><span></span></div>`+
+    Object.keys(grouped).map(k=>`<div style="font-size:11px;color:var(--muted);font-weight:600;padding:9px 0 3px">${escHtml(catLabel(k))}</div>`+
+      grouped[k].map(p=>{
+        const dual=formatDualStock(p);
+        const sub=dual.packLabel?`<div style="font-size:10px;color:#b45309">≈ ${escHtml(dual.packLabel)}</div>`:'';
+        return `<div class="count-row" data-id="${p.id}">
+        <span class="cname">${escHtml(p.name)}</span>
+        <span style="text-align:right">${fmt(p.stock||0)} ${escHtml(p.unit||'')}${sub}</span>
+        <input type="number" step="any" class="count-actual" placeholder="นับได้" oninput="calcDiff(this,'${p.id}')"/>
+        <span class="diff" id="diff-${p.id}">-</span>
+        <span></span>
+      </div>`;}).join('')
+    ).join('');
+}
+function calcDiff(inp,pid){
+  const p=products.find(x=>x.id===pid);if(!p)return;
+  const actual=parseFloat(inp.value);const el=document.getElementById('diff-'+pid);
+  if(isNaN(actual)){el.textContent='-';el.className='diff';return;}
+  const diff=actual-(p.stock||0);
+  el.textContent=(diff>=0?'+':'')+fmt(diff);
+  el.className='diff '+(diff>=0?'pos':'neg');
+}
+async function saveCount(){
+  const today=new Date().toISOString().slice(0,10);
+  const rows=[...document.querySelectorAll('#count-list .count-row[data-id]')];
+  const counts=[],adjustments=[];
+  rows.forEach(r=>{
+    const inp=r.querySelector('.count-actual');if(!inp||inp.value==='')return;
+    const actual=parseFloat(inp.value);if(isNaN(actual))return;
+    const pid=r.dataset.id;const p=products.find(x=>x.id===pid);if(!p)return;
+    const diff=actual-(p.stock||0);
+    counts.push({date:today,id:p.id,name:p.name,category:p.category,system:p.stock||0,actual,unit:p.unit||'',note:''});
+    if(diff!==0){
+      const kind=diff>0?'รับเข้า (ปรับ)':'ตัดออก (ปรับ)';
+      adjustments.push({ts:Date.now(),id:p.id,name:p.name,kind,qty:Math.abs(diff),unit:p.unit,before:p.stock||0,after:actual,note:'ปรับจากการนับสต๊อก '+today,category:p.category});
+    }
+  });
+  if(!counts.length){alert('กรุณากรอกยอดนับอย่างน้อย 1 รายการ');return;}
+  if(adjustments.length){
+    if(!(await requireAdmin('ปรับยอดสต๊อกสินค้าที่บันทึกไว้แล้ว')))return;
+    adjustments.forEach(a=>{const p=products.find(x=>x.id===a.id);if(p){p.stock=a.after;p.updatedAt=Date.now();}});
+  }
+  movements=[...adjustments,...movements].slice(0,300);
+  saveInv();updateInvKPI();renderInventory();renderCount();
+  queueSync('count',counts);
+  if(adjustments.length){queueSync('movement',adjustments);queueSync('inventory',adjustments.map(a=>products.find(p=>p.id===a.id)).filter(Boolean));}
+  showToast('นับสต๊อก','✅ บันทึก '+counts.length+' รายการ'+(adjustments.length?', ปรับยอด '+adjustments.length:'')+(gsOn?' + Sheets':''));
+}
+function renderHistory(){
+  const el=document.getElementById('history-list');
+  if(!movements.length){el.innerHTML='<div class="empty">ยังไม่มีประวัติ</div>';return;}
+  el.innerHTML=movements.slice(0,100).map(m=>{
+    const d=new Date(m.ts);const ds=d.toLocaleString('th-TH',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+    const isIn=m.kind&&m.kind.includes('รับ');
+    const thumb=m.image
+      ? `<img class="stock-thumb" src="${m.image}" alt="" onclick="openLightbox(this.src)"/>`
+      : `<div class="stock-thumb empty">${isIn?'📥':'📤'}</div>`;
+    return `<div class="stock-card">
+      ${thumb}
+      <div style="flex:1;min-width:0">
+        <div class="stock-cat">${ds} · ${escHtml(m.kind||'')}${m.note?' · '+escHtml(m.note):''}</div>
+        <div class="stock-name">${escHtml(m.name||'')}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:700;color:${isIn?'var(--inc-label)':'var(--exp-label)'}">${isIn?'+':'-'}${fmt(m.qty||0)} ${escHtml(m.unit||'')}</div>
+        <div style="font-size:10px;color:var(--muted)">${fmt(m.before||0)} → ${fmt(m.after||0)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+function openMove(pid,kind){
+  moveCtx={pid,kind};
+  const p=products.find(x=>x.id===pid);if(!p)return;
+  document.getElementById('move-title').textContent=kind==='in'?'📥 รับเข้าสต๊อก':'📤 ตัดออกจากสต๊อก';
+  const dual=formatDualStock(p);
+  const subLine=dual.packLabel?' ≈ '+dual.packLabel:'';
+  document.getElementById('move-item-name').textContent=p.name+' (คงเหลือ '+fmt(p.stock||0)+' '+(p.unit||'')+subLine+')';
+  // Populate the unit selector with the base unit and, if defined, the pack unit.
+  const unitSel=document.getElementById('move-unit');
+  if(unitSel){
+    const opts=[p.unit||'ชิ้น'];
+    if(p.packUnit&&p.packSize>0&&p.packUnit!==p.unit)opts.push(p.packUnit);
+    unitSel.innerHTML=opts.map(u=>`<option value="${escAttr(u)}">${escHtml(u)}</option>`).join('');
+    unitSel.value=opts[0];
+    unitSel.onchange=()=>updateMoveUnitHint();
+  }
+  document.getElementById('move-qty').value='';document.getElementById('move-price').value='';
+  document.getElementById('move-note').value='';
+  updateMoveUnitHint();
+  // reset & seed photo from product (prefill) so user can see/replace
+  pendingMovePhoto=p.image||'';
+  setThumb('mv',pendingMovePhoto);
+  document.getElementById('mv-photo-hint').textContent=kind==='in'
+    ? 'แนบรูปสินค้าที่ซื้อมา (ถ้าใส่รูปใหม่จะบันทึกเป็นรูปหลักของสินค้าด้วย)'
+    : 'แนบรูปสินค้าที่ขายหรือส่งออก (เก็บเป็นหลักฐานรายการนี้)';
+  document.getElementById('mv-photo-cam').value='';document.getElementById('mv-photo-file').value='';
+  document.getElementById('ov-move').classList.add('open');
+}
+function updateMoveUnitHint(){
+  if(!moveCtx)return;
+  const p=products.find(x=>x.id===moveCtx.pid);if(!p)return;
+  const hint=document.getElementById('move-unit-hint');if(!hint)return;
+  const u=document.getElementById('move-unit')?.value||p.unit;
+  if(p.packUnit&&p.packSize>0&&u===p.packUnit){
+    hint.textContent='ℹ️ 1 '+p.packUnit+' = '+fmt(p.packSize)+' '+p.unit+' — ระบบจะแปลงให้อัตโนมัติ';
+  }else{hint.textContent='';}
+}
+function doMove(){
+  if(!moveCtx)return;
+  const p=products.find(x=>x.id===moveCtx.pid);if(!p){closeOv('ov-move');return;}
+  const inputQty=parseFloat(document.getElementById('move-qty').value);
+  if(!inputQty||inputQty<=0){alert('กรุณากรอกจำนวน');return;}
+  const inputUnit=(document.getElementById('move-unit')?.value||p.unit||'').trim();
+  const total=parseFloat(document.getElementById('move-price').value)||0;
+  const note=document.getElementById('move-note').value.trim();
+  const conv=convertToBaseQty(p,inputQty,inputUnit);
+  const qty=conv.factor==null?inputQty:conv.qty;
+  const before=p.stock||0;const after=moveCtx.kind==='in'?before+qty:before-qty;
+  const prevStock=p.stock,prevCost=p.cost,prevImage=p.image,prevUpdatedAt=p.updatedAt;
+  p.stock=after;
+  p.updatedAt=Date.now();
+  if(moveCtx.kind==='in'&&total>0&&qty>0)p.cost=total/qty;
+  const photo=pendingMovePhoto||'';
+  if(photo && moveCtx.kind==='in' && photo!==p.image){p.image=photo;}
+  if(!p.image && photo){p.image=photo;}
+  let finalNote=note||'';
+  if(conv.converted&&inputUnit&&inputUnit!==p.unit){
+    const extra=fmt(inputQty)+' '+inputUnit+' = '+fmt(qty)+' '+p.unit;
+    finalNote=finalNote?finalNote+' · '+extra:extra;
+  }
+  const mv={ts:Date.now(),id:p.id,name:p.name,kind:moveCtx.kind==='in'?'รับเข้า':'ตัดออก',qty,unit:p.unit,before,after,note:finalNote,category:p.category};
+  if(conv.converted){mv.qtyIn=inputQty;mv.unitIn=inputUnit;}
+  if(photo)mv.image=photo;
+  movements.unshift(mv);if(movements.length>300)movements.length=300;
+  if(!safeSaveInv()){
+    p.stock=prevStock;p.cost=prevCost;p.image=prevImage;p.updatedAt=prevUpdatedAt;
+    movements=movements.filter(x=>x!==mv);
+    return;
+  }
+  updateInvKPI();renderInventory();
+  queueSync('movement',[mv]);queueSync('inventory',[p]);
+  pendingMovePhoto='';
+  closeOv('ov-move');showToast(mv.kind,p.name+' ← '+fmt(inputQty)+' '+inputUnit+(conv.converted?' (='+fmt(qty)+' '+p.unit+')':''));
+}
+let editingProductId=null;
+function openAddProduct(){
+  editingProductId=null;
+  document.getElementById('prod-modal-title').textContent='➕ เพิ่มสินค้า/รายการใหม่';
+  document.getElementById('prod-save-btn').textContent='เพิ่ม';
+  document.getElementById('p-stock-label').style.display='none';
+  document.getElementById('p-stock').style.display='none';
+  document.getElementById('p-stock').value='';
+  const catSel=document.getElementById('p-cat');if(catSel)catSel.disabled=false;
+  document.getElementById('p-name').value='';document.getElementById('p-unit').value='';
+  document.getElementById('p-price').value='';document.getElementById('p-reorder').value='';
+  const pu=document.getElementById('p-pack-unit');if(pu)pu.value='';
+  const ps=document.getElementById('p-pack-size');if(ps)ps.value='';
+  const ju=document.getElementById('p-juice-unit');if(ju)ju.value='ขวด';
+  const jml=document.getElementById('p-juice-ml');if(jml)jml.value='';
+  pendingProductPhoto='';
+  setThumb('p','');
+  document.getElementById('p-photo-cam').value='';document.getElementById('p-photo-file').value='';
+  updatePJuiceVisibility();
+  document.getElementById('ov-prod').classList.add('open');
+}
+async function editProduct(id){
+  if(!(await requireAdmin('แก้ไขรายการสินค้าในคลัง')))return;
+  const p=products.find(x=>x.id===id);
+  if(!p){alert('ไม่พบสินค้านี้');return;}
+  editingProductId=id;
+  document.getElementById('prod-modal-title').textContent='✏️ แก้ไขสินค้า';
+  document.getElementById('prod-save-btn').textContent='บันทึก';
+  const catSel=document.getElementById('p-cat');
+  if(catSel){catSel.value=p.category;catSel.disabled=false;}
+  document.getElementById('p-name').value=p.name||'';
+  document.getElementById('p-unit').value=p.unit||'';
+  document.getElementById('p-price').value=p.cost||p.price||'';
+  document.getElementById('p-reorder').value=p.reorder||'';
+  const pu=document.getElementById('p-pack-unit');if(pu)pu.value=p.packUnit||'';
+  const ps=document.getElementById('p-pack-size');if(ps)ps.value=p.packSize||'';
+  const ju=document.getElementById('p-juice-unit');
+  if(ju){
+    const juiceUnits=['ขวด','แพ็ค','กล่อง'];
+    ju.value=juiceUnits.includes(p.unit)?p.unit:'ขวด';
+  }
+  const jml=document.getElementById('p-juice-ml');if(jml)jml.value=p.ml||'';
+  document.getElementById('p-stock-label').style.display='';
+  const stockI=document.getElementById('p-stock');stockI.style.display='';stockI.value=p.stock||0;
+  pendingProductPhoto=p.image||'';
+  setThumb('p',pendingProductPhoto);
+  document.getElementById('p-photo-cam').value='';document.getElementById('p-photo-file').value='';
+  updatePJuiceVisibility();
+  document.getElementById('ov-prod').classList.add('open');
+}
+async function deleteProduct(id){
+  if(!(await requireAdmin('ลบสินค้าจากคลัง')))return;
+  const p=products.find(x=>x.id===id);
+  if(!p){alert('ไม่พบสินค้านี้');return;}
+  if(!confirm('ลบสินค้า "'+p.name+'" จากคลัง?\n(ประวัติการเคลื่อนไหวจะยังคงอยู่)'))return;
+  products=products.filter(x=>x.id!==id);
+  rememberDeletedProduct(id,Date.now());
+  if(!safeSaveInv()){products.push(p);clearDeletedProduct(id);return;}
+  updateInvKPI();renderInventory();
+  showToast('ลบแล้ว','🗑️ '+p.name);
+}
+function doSaveProduct(){
+  const cat=document.getElementById('p-cat').value;
+  const name=document.getElementById('p-name').value.trim();
+  if(!name){alert('กรุณากรอกชื่อ');return;}
+  const isJuice=(cat==='product');
+  let unit=document.getElementById('p-unit').value.trim()||'ชิ้น';
+  let ml=0;
+  if(isJuice){
+    const ju=document.getElementById('p-juice-unit');
+    if(ju&&ju.value)unit=ju.value;
+    const jml=document.getElementById('p-juice-ml');
+    ml=parseFloat(jml&&jml.value)||0;
+  }
+  const price=parseFloat(document.getElementById('p-price').value)||0;
+  const reorder=parseFloat(document.getElementById('p-reorder').value)||0;
+  const packUnit=(document.getElementById('p-pack-unit')?.value||'').trim();
+  const packSize=parseFloat(document.getElementById('p-pack-size')?.value)||0;
+  if(editingProductId){
+    const p=products.find(x=>x.id===editingProductId);
+    if(!p){alert('ไม่พบสินค้านี้');return;}
+    const prev={...p};
+    const stockVal=parseFloat(document.getElementById('p-stock').value);
+    p.category=cat;p.name=name;p.unit=unit;p.price=price;p.cost=price;p.reorder=reorder;p.updatedAt=Date.now();
+    if(isJuice&&ml>0)p.ml=ml;
+    else delete p.ml;
+    if(packUnit&&packSize>0){p.packUnit=packUnit;p.packSize=packSize;}
+    else{delete p.packUnit;delete p.packSize;}
+    if(!isNaN(stockVal))p.stock=stockVal;
+    if(pendingProductPhoto)p.image=pendingProductPhoto;
+    else delete p.image;
+    if(!safeSaveInv()){Object.assign(p,prev);return;}
+    updateInvKPI();renderInventory();
+    queueSync('catalog',[p]);queueSync('inventory',[p]);
+    pendingProductPhoto='';editingProductId=null;
+    closeOv('ov-prod');showToast('บันทึก','✏️ แก้ไข '+name+' แล้ว');
+    return;
+  }
+  const id=prodKey(cat,name);
+  if(products.find(p=>p.id===id)){alert('สินค้านี้มีอยู่แล้ว');return;}
+  clearDeletedProduct(id);
+  const p={id,category:cat,name,unit,price,cost:price,reorder,stock:0,updatedAt:Date.now()};
+  if(isJuice&&ml>0)p.ml=ml;
+  if(packUnit&&packSize>0){p.packUnit=packUnit;p.packSize=packSize;}
+  if(pendingProductPhoto)p.image=pendingProductPhoto;
+  products.push(p);
+  if(!safeSaveInv()){products.pop();return;}
+  updateInvKPI();renderInventory();
+  queueSync('catalog',[p]);queueSync('inventory',[p]);
+  pendingProductPhoto='';
+  closeOv('ov-prod');showToast('เพิ่ม','✅ '+name);
+}
+function doAddProduct(){return doSaveProduct();}
+function updatePJuiceVisibility(){
+  const cat=document.getElementById('p-cat');
+  const wrap=document.getElementById('p-juice-wrap');
+  const unitLbl=document.getElementById('p-unit-label');
+  const unitInp=document.getElementById('p-unit');
+  if(!cat||!wrap)return;
+  const isJuice=(cat.value==='product');
+  wrap.style.display=isJuice?'':'none';
+  if(unitLbl)unitLbl.style.display=isJuice?'none':'';
+  if(unitInp)unitInp.style.display=isJuice?'none':'';
+}
+
+// ── PHOTO CAPTURE / UPLOAD HELPERS ──
+let pendingProductPhoto='';
+let pendingMovePhoto='';
+function compressImage(file,maxDim,quality){
+  return new Promise((resolve,reject)=>{
+    if(!file||!file.type||!file.type.startsWith('image/')){reject(new Error('ไฟล์ไม่ใช่รูปภาพ'));return;}
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error('อ่านไฟล์ไม่สำเร็จ'));
+    reader.onload=()=>{
+      const img=new Image();
+      img.onerror=()=>reject(new Error('เปิดรูปไม่ได้'));
+      img.onload=()=>{
+        let w=img.width,h=img.height;const m=maxDim||720;
+        if(w>m||h>m){const r=w>h?m/w:m/h;w=Math.round(w*r);h=Math.round(h*r);}
+        const c=document.createElement('canvas');c.width=w;c.height=h;
+        const ctx=c.getContext('2d');ctx.drawImage(img,0,0,w,h);
+        try{resolve(c.toDataURL('image/jpeg',quality||0.72));}
+        catch(e){reject(e);}
+      };
+      img.src=reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function setThumb(prefix,dataUrl){
+  const img=document.getElementById(prefix+'-thumb-img');
+  const empty=document.getElementById(prefix+'-thumb-empty');
+  const clr=document.getElementById(prefix+'-photo-clear');
+  if(dataUrl){img.src=dataUrl;img.style.display='';empty.style.display='none';clr.style.display='';}
+  else{img.removeAttribute('src');img.style.display='none';empty.style.display='';clr.style.display='none';}
+}
+async function handleProductPhoto(input){
+  const f=input.files&&input.files[0];if(!f)return;
+  try{pendingProductPhoto=await compressImage(f,720,0.72);setThumb('p',pendingProductPhoto);}
+  catch(e){alert('ไม่สามารถใช้รูปนี้ได้: '+(e.message||e));}
+  finally{input.value='';}
+}
+async function handleMovePhoto(input){
+  const f=input.files&&input.files[0];if(!f)return;
+  try{pendingMovePhoto=await compressImage(f,720,0.72);setThumb('mv',pendingMovePhoto);}
+  catch(e){alert('ไม่สามารถใช้รูปนี้ได้: '+(e.message||e));}
+  finally{input.value='';}
+}
+async function addFinPhotos(input){/* deprecated — per-item photos used instead */ if(input)input.value='';}
+function renderFinPhotos(){/* deprecated */}
+function removeFinPhoto(){/* deprecated */}
+function clearProductPhoto(){pendingProductPhoto='';setThumb('p','');}
+function clearMovePhoto(){pendingMovePhoto='';setThumb('mv','');}
+function openLightbox(src){if(!src)return;document.getElementById('lightbox-img').src=src;document.getElementById('lightbox').classList.add('open');}
+function closeLightbox(){document.getElementById('lightbox').classList.remove('open');document.getElementById('lightbox-img').removeAttribute('src');}
+function safeSaveInv(){
+  try{saveInv();return true;}
+  catch(e){
+    const quota=e&&(e.name==='QuotaExceededError'||/quota/i.test(e.message||''));
+    alert(quota
+      ? 'พื้นที่จัดเก็บของเบราว์เซอร์เต็มจากการเก็บรูปภาพ — กรุณาลบรูปเก่าหรือถ่ายรูปใหม่ให้เล็กลง'
+      : 'บันทึกข้อมูลไม่สำเร็จ: '+(e.message||e));
+    return false;
+  }
+}
+
+// DOCUMENT EXCHANGE + AI ACTIONS
+let docScope='all';
+let aiAttachment=null; // {kind,name,text,image,document}
+let aiPendingActions=[];
+let aiChatMessages=[];
+let aiCameraImage='';
+let aiCameraCountAction=null;
+let aiCameraStream=null;
+let aiVideoRecorder=null,aiVideoChunks=[],aiVideoMime='video/webm',aiVideoStartedAt=0;
+
+function openDataExchange(scope){
+  docScope=scope||currentApp||'all';
+  const label=document.getElementById('doc-scope-label');
+  if(label)label.textContent='ข้อมูลเป้าหมาย: '+docScopeLabel(docScope)+' · รองรับ JSON, Spreadsheet, PDF/พิมพ์ และนำเข้าไฟล์ให้ AI วิเคราะห์';
+  const st=document.getElementById('doc-import-status');if(st)st.textContent='';
+  document.getElementById('ov-docs').classList.add('open');
+}
+function docScopeLabel(s){
+  return ({chat:'ห้องขาย',feed:'ROOM somsod',l2:'ห้องประชุม',factory:'โรงงาน',products:'รายการสินค้า',inventory:'คลังสินค้า',finance:'รายรับ-รายจ่าย',admin:'แอดมิน',ai:'แชท AI',camera:'กล้อง AI',all:'ทั้งแอป'})[s]||s;
+}
+function appSnapshot(){
+  return {
+    exportedAt:new Date().toISOString(),
+    scope:docScope||currentApp||'all',
+    profile:{name:profile.name||''},
+    finance:finEntries||[],
+    products:products||[],
+    movements:movements||[],
+    productDeletedIds:loadDeletedProductIds(),
+    productList:productList||[],
+    rooms:rooms||[],
+    factory:{lots:facLots||[],bottling:facBottling||[],empty:facEmpty||[]},
+    categories:CATEGORIES||[],
+    roomCategories:CATEGORIES_ROOM||[],
+    roomLevelPurposes:roomLevelPurposes||{},
+    deletedRoomIds:[...loadDeletedRoomIds()],
+    registrations:regUsers||[],
+    registrationDeletes:fbRegDeleted||{},
+    unitRules:unitRules||[],
+    stockVol:stockVol||{items:[],history:[]},
+    roles:roles||[],
+    userRoles:userRoles||[],
+    auditLog:auditLog||[],
+    chatRooms:chatRoomsList||[],
+    feedChat:feedChatLoad?feedChatLoad():[],
+    chatDeletedIds:loadDeletedChatIds(),
+  };
+}
+async function appStateApi(path,opts){
+  let lastErr='';
+  for(const base of APP_STATE_ENDPOINTS){
+    try{
+      const res=await fetch(base+path,opts);
+      const text=await res.text();
+      let data=null;try{data=text?JSON.parse(text):null;}catch(_){}
+      if(!res.ok||data?.ok===false)throw new Error((data&&(data.error||data.message))||text||('HTTP '+res.status));
+      return data||{};
+    }catch(e){lastErr=e.message||String(e);}
+  }
+  throw new Error(lastErr||'app state sync failed');
+}
+function renderAppStateStatus(){
+  const st=document.getElementById('ad-connect-status');
+  if(st&&currentApp==='admin')renderAdminConnect();
+  const fbstat=document.getElementById('fbstat');
+  if(fbstat)fbstat.textContent=appStateOn?'🟢 Netlify realtime พร้อมใช้งาน':'🟡 กำลังใช้ข้อมูลในเครื่อง';
+}
+function scheduleAppStatePush(reason){
+  if(appStateApplying)return;
+  if(!appStateInitialPullDone){
+    appStatePendingReason=reason||appStatePendingReason||'change';
+    return;
+  }
+  clearTimeout(appStatePushTimer);
+  appStatePushTimer=setTimeout(()=>pushAppState(reason||'change'),700);
+}
+async function pushAppState(reason){
+  if(appStateApplying)return;
+  if(appStateSyncing){scheduleAppStatePush(reason||'queued');return;}
+  appStateSyncing=true;
+  try{
+    const payload=appSnapshot();
+    payload.syncReason=reason||'change';
+    const data=await appStateApi('',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({state:payload,clientId:getAppStateClientId(),updatedBy:(profile&&profile.name)||''})
+    });
+    appStateRevision=Number(data.revision||appStateRevision||0);
+    appStateOn=true;
+    renderAppStateStatus();
+  }catch(e){
+    appStateOn=false;
+    renderAppStateStatus();
+  }finally{appStateSyncing=false;}
+}
+async function pullAppState(){
+  if(appStatePullPromise)return appStatePullPromise;
+  appStatePullPromise=(async()=>{
+    if(appStateSyncing)return null;
+    try{
+      const data=await appStateApi('');
+      appStateOn=true;
+      const rev=Number(data.revision||0);
+      if(data.state&&rev&&rev>appStateRevision){
+        appStateRevision=rev;
+        applyRemoteAppState(data.state);
+      }
+      appStateInitialPullDone=true;
+      appStatePendingReason='';
+      if(!data.state){
+        scheduleAppStatePush('initial-seed');
+      }
+      renderAppStateStatus();
+      return data;
+    }catch(e){
+      appStateOn=false;
+      renderAppStateStatus();
+      throw e;
+    }finally{
+      appStatePullPromise=null;
+    }
+  })();
+  return appStatePullPromise;
+}
+function startAppStateSync(){
+  if(appStateTimer)return;
+  getAppStateClientId();
+  pullAppState();
+  appStateTimer=setInterval(pullAppState,APP_STATE_PULL_MS);
+}
+function applyRemoteAppState(data){
+  appStateApplying=true;
+  try{importAppSnapshot(data,true);}
+  finally{appStateApplying=false;}
+}
+function dataForScope(scope){
+  const snap=appSnapshot();
+  if(scope==='finance')return {finance:snap.finance};
+  if(scope==='inventory')return {products:snap.products,movements:snap.movements,categories:snap.categories,unitRules:snap.unitRules,stockVol:snap.stockVol,productDeletedIds:snap.productDeletedIds};
+  if(scope==='products'||scope==='camera')return {products:snap.products,productList:snap.productList,movements:snap.movements};
+  if(scope==='factory')return {factory:snap.factory,finance:snap.finance};
+  if(scope==='chat'||scope==='feed'||scope==='l2')return {rooms:snap.rooms,finance:snap.finance};
+  return snap;
+}
+function downloadBlob(name,type,text){
+  const blob=new Blob([text],{type});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function exportAppJSON(){
+  const d=new Date().toISOString().slice(0,10);
+  downloadBlob('appsomsod-'+(docScope||currentApp)+'-'+d+'.json','application/json;charset=utf-8',JSON.stringify(dataForScope(docScope),null,2));
+}
+function rowsForExport(scope){
+  const rows=[];
+  const add=(sheet,row)=>rows.push({sheet,...row});
+  if(scope==='finance'||scope==='all'||!scope){
+    (finEntries||[]).forEach(e=>{
+      (e.expItems||[]).forEach(i=>add('finance',{date:e.date,type:'รายจ่าย',name:i.name,category:i.category||e.category||'',qty:i.qty||'',unit:i.unit||'',price:i.price||'',total:i.total||0,note:e.note||''}));
+      (e.incItems||[]).forEach(i=>add('finance',{date:e.date,type:'รายรับ',name:i.name,category:i.category||e.category||'',qty:i.qty||'',unit:i.unit||'',price:i.price||'',total:i.total||0,note:e.note||''}));
+    });
+  }
+  if(scope==='products'||scope==='inventory'||scope==='camera'||scope==='all'||!scope){
+    (products||[]).forEach(p=>add('inventory',{id:p.id,category:p.category,name:p.name,stock:p.stock||0,unit:p.unit||'',cost:p.cost||0,reorder:p.reorder||0}));
+    (productList||[]).forEach(p=>add('catalog',{id:p.id,kind:p.kind,name:p.name,baseUnit:(p.units&&p.units[0]&&p.units[0].name)||'',baseMl:p.baseMl||0,basePrice:p.basePrice||0}));
+  }
+  if(scope==='factory'||scope==='all'||!scope){
+    (facLots||[]).forEach(l=>add('factory_lots',l));
+    (facBottling||[]).forEach(b=>add('factory_bottling',b));
+    (facEmpty||[]).forEach(e=>add('factory_empty',e));
+  }
+  if(scope==='chat'||scope==='feed'||scope==='l2'||scope==='all'||!scope){
+    (rooms||[]).forEach(r=>(r.sales||[]).forEach(s=>add('sales',{room:r.name,date:s.date||'',kind:s.kind||'sell',name:s.name,qty:s.qty,unit:s.unit,price:s.price,total:s.total,customer:s.customer||''})));
+  }
+  return rows;
+}
+function csvCell(v){const s=String(v==null?'':v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}
+function exportAppCSV(){
+  const rows=rowsForExport(docScope);
+  if(!rows.length){alert('ไม่มีข้อมูลสำหรับส่งออก');return;}
+  const keys=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+  const csv='\uFEFF'+[keys.join(','),...rows.map(r=>keys.map(k=>csvCell(r[k])).join(','))].join('\n');
+  downloadBlob('appsomsod-'+docScope+'-'+new Date().toISOString().slice(0,10)+'.csv','text/csv;charset=utf-8',csv);
+}
+function exportAppXLSX(){
+  if(typeof XLSX==='undefined'){alert('กรุณารอโหลด library');return;}
+  const wb=XLSX.utils.book_new();
+  const grouped={};
+  rowsForExport(docScope).forEach(r=>{const s=r.sheet||'data';(grouped[s]||(grouped[s]=[])).push(r);});
+  if(!Object.keys(grouped).length){alert('ไม่มีข้อมูลสำหรับส่งออก');return;}
+  Object.entries(grouped).forEach(([name,rows])=>XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),name.slice(0,30)));
+  XLSX.writeFile(wb,'appsomsod-'+docScope+'-'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+function exportAppPDF(){
+  const rows=rowsForExport(docScope).slice(0,500);
+  if(!rows.length){alert('ไม่มีข้อมูลสำหรับส่งออก');return;}
+  const keys=[...new Set(rows.flatMap(r=>Object.keys(r)))].slice(0,10);
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>appsomsod</title><style>body{font-family:sans-serif;padding:20px;font-size:11px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #e5e7eb;padding:5px 6px;text-align:left;vertical-align:top}th{background:#f3f4f6}.pbtn{margin-bottom:12px;padding:8px 14px;border:0;background:#ff7a00;color:#fff;border-radius:6px}@media print{.pbtn{display:none}}</style></head><body><button class="pbtn" onclick="window.print()">บันทึกเป็น PDF / พิมพ์</button><h2>Appsomsod - ${docScopeLabel(docScope)}</h2><table><thead><tr>${keys.map(k=>`<th>${k}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${keys.map(k=>`<td>${String(r[k]??'').replace(/</g,'&lt;')}</td>`).join('')}</tr>`).join('')}</tbody></table></body></html>`;
+  const w=window.open('','_blank');if(w){w.document.write(html);w.document.close();}
+}
+async function handleDocImport(event){
+  const files=[...event.target.files];event.target.value='';
+  if(!files.length)return;
+  const st=document.getElementById('doc-import-status');if(st)st.textContent='กำลังอ่านไฟล์...';
+  for(const file of files){
+    const ext=(file.name.split('.').pop()||'').toLowerCase();
+    try{
+      if(ext==='json'){
+        const text=await file.text();const data=JSON.parse(text);
+        if(Array.isArray(data)){mergeFin(data);if(st)st.textContent='นำเข้า JSON เป็นรายการรายรับ-รายจ่ายแล้ว';}
+        else if(data.finance||data.products||data.productList||data.rooms||data.factory){importAppSnapshot(data);if(st)st.textContent='นำเข้าสำรองข้อมูลแอปแล้ว';}
+        else throw new Error('รูปแบบ JSON ไม่รองรับ');
+      }else if(ext==='csv'||ext==='xlsx'||ext==='xls'){
+        await importSpreadsheetFile(file);
+        if(st)st.textContent='นำเข้า spreadsheet แล้ว และเปิดให้ AI วิเคราะห์ต่อได้ในหน้าแชท AI';
+      }else{
+        await aiLoadAttachment(file);
+        if(st)st.textContent='ส่งไฟล์ไปที่หน้าแชท AI แล้ว พิมพ์คำสั่งเพื่อวิเคราะห์หรือลงข้อมูล';
+        closeOv('ov-docs');switchApp('ai');
+      }
+    }catch(e){if(st)st.textContent='นำเข้าไม่สำเร็จ: '+(e.message||e);}
+  }
+}
+function importAppSnapshot(data,fromRemote){
+  if(Array.isArray(data.finance)){finEntries=data.finance;saveFin();}
+  if(data.productDeletedIds){saveDeletedProductIds({...loadDeletedProductIds(),...data.productDeletedIds});}
+  if(Array.isArray(data.products)){products=filterDeletedProducts(data.products,loadDeletedProductIds());saveInv();}
+  if(Array.isArray(data.movements)){movements=data.movements;saveInv();}
+  if(Array.isArray(data.productList)){productList=data.productList;plSave();}
+  if(Array.isArray(data.rooms)){rooms=data.rooms;saveRooms();}
+  if(Array.isArray(data.categories)){CATEGORIES=data.categories;saveCategories();}
+  if(Array.isArray(data.roomCategories)){CATEGORIES_ROOM=data.roomCategories;saveRoomCats();}
+  if(data.roomLevelPurposes){roomLevelPurposes={...ROOM_PURPOSE_DEFAULT,...data.roomLevelPurposes};saveLS(ROOM_PURPOSE_KEY,roomLevelPurposes);applyRoomPurposeLabels();}
+  if(Array.isArray(data.deletedRoomIds)){saveLS(DELETED_ROOMS_KEY,data.deletedRoomIds);}
+  if(data.registrationDeletes){fbRegDeleted={...(fbRegDeleted||{}),...data.registrationDeletes};saveRegDeleted();}
+  if(Array.isArray(data.registrations)){regUsers=mergeRegUsers(regUsers,data.registrations,fbRegDeleted);saveRegUsers();}
+  if(Array.isArray(data.unitRules)){unitRules=data.unitRules;saveUnitRules();}
+  if(data.stockVol){stockVol=data.stockVol;saveStockVol();}
+  if(Array.isArray(data.roles)){roles=data.roles;saveLS('org_roles',roles);}
+  if(Array.isArray(data.userRoles)){userRoles=data.userRoles;saveLS('org_user_roles',userRoles);}
+  if(Array.isArray(data.auditLog)){auditLog=data.auditLog;saveLS('org_audit',auditLog);}
+  if(Array.isArray(data.chatDeletedIds)){saveDeletedChatIds([...new Set(loadDeletedChatIds().concat(data.chatDeletedIds))].slice(-1000));}
+  if(Array.isArray(data.chatRooms)){chatRoomsList=data.chatRooms;saveChatRoomsList();}
+  if(Array.isArray(data.feedChat)){feedChatSave(filterDeletedChatMessages(data.feedChat));}
+  if(data.factory){
+    if(Array.isArray(data.factory.lots))facLots=data.factory.lots;
+    if(Array.isArray(data.factory.bottling))facBottling=data.factory.bottling;
+    if(Array.isArray(data.factory.empty))facEmpty=data.factory.empty;
+    facSave();
+  }
+  updateMetrics();updateInvKPI();buildDatalists();renderRooms();renderSidebarChatRooms();
+  if(currentApp==='admin')renderAdmin();
+  if(currentApp==='feed')renderFeed();
+  if(currentApp==='inventory'){renderInventory();updateInvKPI();}
+  if(currentApp==='products')renderProductList();
+  if(!fromRemote)scheduleAppStatePush('manual-import');
+}
+function mergeRegUsers(local,remote,deletes){
+  const byId=new Map();
+  const score=u=>Math.max(Number(u&&u.updatedAt||0),Number(u&&u.approvedAt||0),Number(u&&u.createdAt||0),Number(u&&u.pendingSince||0));
+  (local||[]).concat(remote||[]).forEach(u=>{
+    if(!u||!u.id4)return;
+    const cur=byId.get(u.id4);
+    byId.set(u.id4,!cur||score(u)>=score(cur)?{...(cur||{}),...u}:{...u,...cur});
+  });
+  const deleted=deletes||{};
+  return [...byId.values()].filter(u=>{
+    if(!u||!u.id4||!deleted[u.id4])return true;
+    return Number(deleted[u.id4]||0)<score(u);
+  });
+}
+async function importSpreadsheetFile(file){
+  const ext=(file.name.split('.').pop()||'').toLowerCase();
+  if(ext==='csv'){
+    const rows=parseCSV(await file.text());mergeFin(rows);return;
+  }
+  if(typeof XLSX==='undefined')throw new Error('กรุณารอโหลด library');
+  const buf=await file.arrayBuffer();
+  const wb=XLSX.read(buf,{type:'array'});let data=[];
+  wb.SheetNames.forEach(sn=>{data=data.concat(parseXLSXRows(XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:''})));});
+  mergeFin(data);
+}
+function aiContext(){
+  return {
+    currentApp,
+    categories:CATEGORIES,
+    products:products.slice(0,120),
+    productList:productList.slice(0,120),
+    rooms:rooms.map(r=>({id:r.id,name:r.name,level:r.level,parentId:r.parentId,sales:(r.sales||[]).slice(-10)})).slice(0,120),
+    recent_sales:rooms.flatMap(r=>(r.sales||[]).slice(-8).map(s=>({...s,room:r.name,roomId:r.id}))).slice(-50),
+    recent_fin:(finEntries||[]).slice(0,50),
+    factory:{lots:(facLots||[]).slice(-20),bottling:(facBottling||[]).slice(-30),empty:(facEmpty||[]).slice(-30)},
+  };
+}
+function aiUseCurrentContext(){
+  const ta=document.getElementById('ai-prompt');if(!ta)return;
+  ta.value=(ta.value?ta.value+'\n':'')+'วิเคราะห์ข้อมูลในหน้าปัจจุบัน ('+docScopeLabel(currentApp)+') และเสนอ action ที่ควรบันทึกให้ถูกต้อง';
+  ta.focus();
+}
+async function aiHandleFile(input){const f=input.files&&input.files[0];if(!f)return;try{await aiLoadAttachment(f);}catch(e){alert('อ่านไฟล์ไม่สำเร็จ: '+(e.message||e));}finally{input.value='';}}
+async function aiLoadAttachment(file){
+  const status=document.getElementById('ai-file-status');
+  const ext=(file.name.split('.').pop()||'').toLowerCase();
+  aiAttachment={kind:'file',name:file.name};
+  if(file.type&&file.type.startsWith('image/')){
+    aiAttachment.image=await compressImage(file,1200,0.78);
+  }else if(file.type==='application/pdf'||ext==='pdf'){
+    aiAttachment.document=await readFileDataUrl(file);
+  }else if(ext==='csv'){
+    aiAttachment.text=(await file.text()).slice(0,20000);
+  }else if(ext==='xlsx'||ext==='xls'){
+    if(typeof XLSX==='undefined')throw new Error('กรุณารอโหลด library');
+    const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});let out=[];
+    wb.SheetNames.forEach(sn=>{out.push('## '+sn);out.push(XLSX.utils.sheet_to_csv(wb.Sheets[sn]).slice(0,12000));});
+    aiAttachment.text=out.join('\n').slice(0,30000);
+  }else{
+    aiAttachment.text=(await file.text()).slice(0,20000);
+  }
+  if(status)status.textContent='แนบไฟล์: '+file.name;
+}
+function readFileDataUrl(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(new Error('อ่านไฟล์ไม่สำเร็จ'));r.readAsDataURL(file);});}
+function aiEnsureChat(){
+  if(!aiChatMessages.length){
+    aiChatMessages.push({role:'assistant',content:'สวัสดีครับ พิมพ์คุยกับส้มสด AI ได้เลย หรือแนบชีต PDF รูปบิล/ใบเสร็จ แล้วสั่งให้วิเคราะห์หรือลงข้อมูลเข้าระบบ'});
+  }
+  aiRenderChat();
+  renderAiActions();
+}
+function aiRenderChat(){
+  const box=document.getElementById('ai-chat-log');if(!box)return;
+  box.innerHTML=aiChatMessages.map(m=>`<div class="ai-msg ${escAttr(m.role==='user'?'user':m.role==='system'?'system':'assistant')}">${escHtml(m.content||'')}</div>`).join('');
+  box.scrollTop=box.scrollHeight;
+}
+function aiPushMessage(role,content){
+  aiChatMessages.push({role,content:String(content||'')});
+  aiChatMessages=aiChatMessages.slice(-40);
+  aiRenderChat();
+}
+async function postAiChat(body){
+  const endpoints=['/api/ai-chat','/.netlify/functions/ai-chat'];
+  let lastError='AI ยังไม่พร้อมใช้งาน';
+  for(let i=0;i<endpoints.length;i++){
+    const endpoint=endpoints[i];
+    let res,text='',data=null;
+    try{
+      res=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      text=await res.text();
+      try{data=text?JSON.parse(text):{};}catch(e){data=null;}
+    }catch(e){
+      lastError=e.message||String(e);
+      continue;
+    }
+    if(res.ok&&data&&data.ok!==false)return data;
+    const routeMissing=res.status===404||res.status===405||(!data&&i===0);
+    lastError=(data&&(data.error||data.message))||text.slice(0,180)||('HTTP '+res.status);
+    if(i===0&&routeMissing)continue;
+    break;
+  }
+  throw new Error(aiFriendlyError(lastError));
+}
+function aiFriendlyError(error){
+  const msg=String(error||'');
+  if(/api key|authentication|ANTHROPIC|NETLIFY_AI_GATEWAY|Could not resolve authentication/i.test(msg)){
+    return 'AI Gateway ยังไม่พร้อมใช้งานบนไซต์นี้ หรือยังไม่มี deploy ที่เปิด AI Gateway';
+  }
+  if(/not found|404|Function not found/i.test(msg)){
+    return 'ไม่พบฟังก์ชัน AI บนไซต์ กรุณารอ deploy ล่าสุดให้เสร็จก่อนใช้งาน';
+  }
+  if(/rate limit|quota|credit|billing/i.test(msg)){
+    return 'โควต้า/เครดิต AI Gateway ไม่พร้อมใช้งานในขณะนี้';
+  }
+  return msg||'AI ตอบกลับไม่สำเร็จ';
+}
+function aiClearChat(){
+  aiChatMessages=[];
+  aiPendingActions=[];
+  renderAiActions();
+  aiEnsureChat();
+  const st=document.getElementById('ai-apply-status');if(st)st.textContent='';
+}
+function aiQuickPrompt(text){
+  const ta=document.getElementById('ai-prompt');if(ta){ta.value=text;ta.focus();}
+  aiSendChat();
+}
+async function aiAnalyze(extra){return aiSendChat(extra);}
+async function aiSendChat(extra){
+  aiEnsureChat();
+  const actionsEl=document.getElementById('ai-actions'),btn=document.getElementById('ai-apply-btn');
+  if(actionsEl)actionsEl.innerHTML='';if(btn)btn.style.display='none';
+  aiPendingActions=[];
+  const prompt=(document.getElementById('ai-prompt')?.value||'').trim();
+  const hasAttachment=!!aiAttachment;
+  if(!prompt&&!hasAttachment)return;
+  const displayText=prompt||(hasAttachment?'วิเคราะห์ไฟล์ที่แนบและบอกผลลัพธ์ที่ควรบันทึก':'');
+  const history=aiChatMessages
+    .filter(m=>m.role==='user'||m.role==='assistant')
+    .slice(-12)
+    .map(m=>({role:m.role,content:m.content}));
+  aiPushMessage('user',displayText+(hasAttachment&&aiAttachment.name?'\n[แนบไฟล์: '+aiAttachment.name+']':''));
+  aiPushMessage('system','AI กำลังตอบ...');
+  const body={mode:(extra&&extra.mode)||'chat',text:displayText,messages:history,context:aiContext()};
+  if(aiAttachment){
+    if(aiAttachment.text)body.documentText=aiAttachment.text;
+    if(aiAttachment.image)body.image=aiAttachment.image;
+    if(aiAttachment.document)body.document=aiAttachment.document;
+    body.fileName=aiAttachment.name||'';
+  }
+  try{
+    const j=await postAiChat(body);
+    aiPendingActions=Array.isArray(j.actions)?j.actions:extractActionsFromText(j.reply||'');
+    if(aiChatMessages[aiChatMessages.length-1]?.role==='system')aiChatMessages.pop();
+    aiPushMessage('assistant',j.reply||'(ไม่มีคำตอบ)');
+    const input=document.getElementById('ai-prompt');if(input)input.value='';
+    if(hasAttachment){
+      aiAttachment=null;
+      const st=document.getElementById('ai-file-status');if(st)st.textContent='ส่งไฟล์ให้ AI แล้ว';
+    }
+    renderAiActions();
+  }catch(e){
+    if(aiChatMessages[aiChatMessages.length-1]?.role==='system')aiChatMessages.pop();
+    aiPushMessage('system','ผิดพลาด: '+(e.message||e));
+  }
+}
+function extractActionsFromText(text){
+  const m=String(text||'').match(/```json\s*([\s\S]*?)```/i)||String(text||'').match(/(\{[\s\S]*"action"[\s\S]*\}|\[[\s\S]*"action"[\s\S]*\])/);
+  if(!m)return[];
+  try{const v=JSON.parse(m[1]);return Array.isArray(v)?v:[v];}catch(e){return[];}
+}
+function renderAiActions(){
+  const el=document.getElementById('ai-actions'),btn=document.getElementById('ai-apply-btn');
+  if(!el)return;
+  if(!aiPendingActions.length){el.innerHTML='<div class="ai-status">ยังไม่มี action ที่พร้อมนำเข้าระบบ</div>';if(btn)btn.style.display='none';return;}
+  el.innerHTML=aiPendingActions.map((a,i)=>`<div class="ai-action"><b>${i+1}. ${escHtml(a.action||'action')}</b><div>${escHtml(aiActionSummary(a))}</div></div>`).join('');
+  if(btn)btn.style.display='block';
+}
+function aiActionSummary(a){
+  const act=String(a.action||'').toLowerCase();
+  if(act==='edit_product'){
+    const upd=a.updates||{};
+    const fields=Object.entries(upd).map(([k,v])=>k+'='+v).join(', ');
+    return (a.targetName||a.name||'?')+' → '+fields;
+  }
+  if(act==='delete_product')return '🗑️ ลบสินค้า: '+(a.targetName||a.name||'?');
+  if(a.items)return (a.items||[]).map(i=>(i.name||'-')+' × '+(i.qty||i.count||1)+' '+(i.unit||'')).join(', ');
+  if(a.name)return a.name;
+  if(a.targetName)return a.targetName+(a.actual!=null?' = '+a.actual:'');
+  return JSON.stringify(a).slice(0,180);
+}
+async function aiApplyActions(){
+  if(!aiPendingActions.length)return;
+  const st=document.getElementById('ai-apply-status');if(st)st.textContent='กำลังบันทึก...';
+  let applied=0;
+  for(const a of aiPendingActions){try{if(applyAiAction(a))applied++;}catch(e){console.warn(e);}}
+  updateMetrics();updateInvKPI();renderRooms();renderProductList();
+  if(currentApp==='finance')renderFinance();
+  aiPendingActions=[];renderAiActions();
+  aiPushMessage('system','บันทึก action สำเร็จ '+applied+' รายการ'+(gsOn?' และส่งเข้าคิว Sheets แล้ว':''));
+  if(st)st.textContent='บันทึกสำเร็จ '+applied+' action'+(gsOn?' · ส่งเข้าคิว Sheets แล้ว':'');
+}
+function applyAiAction(a){
+  const action=String(a.action||'').toLowerCase();
+  if(action==='add_expense'||action==='add_income')return aiAddFinance(a,action==='add_income');
+  if(action==='add_product')return aiAddProducts(a);
+  if(action==='edit_product')return aiEditProduct(a);
+  if(action==='delete_product')return aiDeleteProduct(a);
+  if(action==='inventory_count'||action==='update_inventory_count')return aiApplyInventoryCount(a);
+  if(action==='queue_sheet'||action==='update_sheet_only'){queueSync(a.type||'daily',a.items||a.data||[]);return true;}
+  if(action==='add_sale')return aiAddSale(a);
+  return false;
+}
+function aiEditProduct(a){
+  const p=a.productId?products.find(x=>x.id===a.productId):findProductByName(a.targetName||a.name);
+  if(!p)return false;
+  const upd=a.updates||a;
+  const allowed=['name','unit','price','cost','reorder','category'];
+  let changed=false;
+  allowed.forEach(k=>{if(upd[k]!==undefined&&upd[k]!==null){p[k]=(k==='price'||k==='cost'||k==='reorder')?Number(upd[k]):String(upd[k]);changed=true;}});
+  if(!changed)return false;
+  p.updatedAt=Date.now();
+  saveInv();queueSync('inventory',[p]);
+  auditAdd('edit_product','AI แก้ไขสินค้า: '+p.name);
+  return true;
+}
+function aiDeleteProduct(a){
+  const p=a.productId?products.find(x=>x.id===a.productId):findProductByName(a.targetName||a.name);
+  if(!p)return false;
+  rememberDeletedProduct(p.id,Date.now());
+  products=products.filter(x=>x.id!==p.id);
+  saveInv();refreshOpenCboxes();
+  auditAdd('delete_product','AI ลบสินค้า: '+p.name);
+  return true;
+}
+function aiAddFinance(a,isIncome){
+  const items=(a.items||[]).map(i=>({name:i.name||'ไม่ระบุ',category:i.category||'other',qty:Number(i.qty||i.count||1),unit:i.unit||'รายการ',price:Number(i.price||i.unitPrice||0),total:Number(i.total||0)||Number(i.qty||i.count||1)*Number(i.price||i.unitPrice||0),photo:i.photo||''})).filter(i=>i.name);
+  if(!items.length)return false;
+  const total=items.reduce((s,i)=>s+Number(i.total||0),0);
+  const entry={id:'ai_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),date:a.date||facToday(),manual:true,category:a.category||items[0].category||'other',expItems:isIncome?[]:items,incItems:isIncome?items:[],expTotal:isIncome?0:total,incTotal:isIncome?total:0,net:isIncome?total:-total,note:'AI: '+(a.note||'วิเคราะห์จากเอกสาร')};
+  finEntries.unshift(entry);safeSaveFin();
+  items.forEach(i=>{if(i.qty>0)applyStockMove(i,isIncome?'out':'in','AI '+(isIncome?'รายรับ':'รายจ่าย')+' '+entry.date);});
+  queueSync('daily',[entry]);queueSync('finance',[entry]);
+  return true;
+}
+function aiAddProducts(a){
+  const items=a.items||[a];
+  let changed=false;
+  items.forEach(i=>{
+    const name=(i.name||'').trim();if(!name)return;
+    const cat=i.category||'other';
+    let p=products.find(x=>x.name===name&&x.category===cat);
+    if(!p){const id=prodKey(cat,name);clearDeletedProduct(id);p={id,category:cat,name,unit:i.unit||'ชิ้น',price:Number(i.price||0),cost:Number(i.cost||i.price||0),reorder:Number(i.reorder||0),stock:Number(i.stock||0),updatedAt:Date.now()};products.push(p);changed=true;}
+  });
+  if(changed){saveInv();queueSync('inventory',products.slice(-20));}
+  return changed;
+}
+function aiApplyInventoryCount(a){
+  const items=a.items||[{productId:a.productId,targetName:a.targetName||a.name,actual:a.actual||a.count,unit:a.unit}];
+  const adjustments=[];
+  items.forEach(i=>{
+    const p=i.productId?products.find(x=>x.id===i.productId):findProductByName(i.targetName||i.name);
+    const actual=Number(i.actual||i.count);
+    if(!p||!isFinite(actual))return;
+    const before=Number(p.stock)||0;
+    p.stock=actual;
+    p.updatedAt=Date.now();
+    adjustments.push({ts:Date.now(),id:p.id,name:p.name,kind:'นับด้วย AI',qty:Math.abs(actual-before),unit:p.unit,before,after:actual,note:'กล้อง/เอกสาร AI',category:p.category});
+  });
+  if(!adjustments.length)return false;
+  movements=[...adjustments,...movements].slice(0,300);saveInv();
+  queueSync('count',adjustments.map(m=>({date:facToday(),id:m.id,name:m.name,category:m.category,system:m.before,actual:m.after,unit:m.unit,note:m.note})));
+  queueSync('movement',adjustments);queueSync('inventory',adjustments.map(m=>products.find(p=>p.id===m.id)).filter(Boolean));
+  return true;
+}
+function aiAddSale(a){
+  const r=a.roomId?findRoom(a.roomId):rooms.find(x=>isSellable(x));
+  if(!r)return false;
+  const items=a.items||[a];
+  const salesForSync=[];
+  items.forEach(i=>{
+    const qty=Number(i.qty||i.count||1),price=Number(i.price||0);
+    const sale={id:'ai_sale_'+Date.now()+'_'+Math.random().toString(36).slice(2,5),ts:Date.now(),date:a.date||facToday(),kind:'sell',category:i.category||'sales',name:i.name||'รายการขาย',qty,unit:i.unit||'รายการ',price,total:Number(i.total||0)||qty*price,note:'AI: '+(a.note||''),by:profile.name||'',room:r.name,roomId:r.id,customer:a.customer||''};
+    r.sales.unshift(sale);applyStockMove(sale,'out','AI ขาย '+sale.date);
+    salesForSync.push(sale);
+  });
+  saveRooms();queueSync('sales',salesForSync);return true;
+}
+function findProductByName(name){
+  const q=String(name||'').trim().toLowerCase();
+  if(!q)return null;
+  return products.find(p=>String(p.name||'').toLowerCase()===q)||products.find(p=>String(p.name||'').toLowerCase().includes(q)||q.includes(String(p.name||'').toLowerCase()));
+}
+function aiRefreshProductSelect(){
+  const sel=document.getElementById('ai-camera-product');if(!sel)return;
+  sel.innerHTML='<option value="">ให้ AI เลือกจากชื่อสินค้า</option>'+(products||[]).map(p=>`<option value="${escAttr(p.id)}">${escHtml(p.name)} (${fmt(p.stock||0)} ${escHtml(p.unit||'')})</option>`).join('');
+}
+let aiCameraFacing='environment';
+let aiCameraZoom=1;
+
+async function aiStartCamera(facing){
+  if(aiVideoRecorder&&aiVideoRecorder.state!=='inactive')aiStopVideoRecord();
+  if(aiCameraStream){aiCameraStream.getTracks().forEach(t=>t.stop());aiCameraStream=null;}
+  if(facing)aiCameraFacing=facing;
+  try{
+    const constraints={video:{facingMode:{ideal:aiCameraFacing},width:{ideal:1920},height:{ideal:1080}},audio:false};
+    aiCameraStream=await navigator.mediaDevices.getUserMedia(constraints);
+    const v=document.getElementById('ai-cam-video'),img=document.getElementById('ai-cam-preview'),empty=document.getElementById('ai-cam-empty'),ctrl=document.getElementById('cam-controls');
+    v.srcObject=aiCameraStream;v.style.display='block';
+    if(img)img.style.display='none';if(empty)empty.style.display='none';
+    if(ctrl)ctrl.style.display='flex';
+    aiCameraZoom=1;
+    const zs=document.getElementById('cam-zoom'),zl=document.getElementById('cam-zoom-lbl');
+    if(zs)zs.value=1;if(zl)zl.textContent='1×';
+    const track=aiCameraStream.getVideoTracks()[0];
+    const caps=track.getCapabilities&&track.getCapabilities();
+    const zoomSlider=document.getElementById('cam-zoom');
+    if(zoomSlider){
+      if(caps&&caps.zoom){zoomSlider.min=caps.zoom.min;zoomSlider.max=caps.zoom.max;zoomSlider.step=caps.zoom.step||0.1;}
+      else{zoomSlider.min=1;zoomSlider.max=5;zoomSlider.step=0.1;}
+    }
+  }catch(e){alert('เปิดกล้องไม่ได้: '+(e.message||e));}
+}
+
+function aiVideoStatus(text,recording){
+  const el=document.getElementById('ai-video-status');
+  if(el)el.innerHTML=(recording?'<span class="ai-record-dot"></span>':'')+escHtml(text||'');
+}
+async function aiStartVideoRecord(){
+  if(!aiCameraStream)await aiStartCamera();
+  if(!aiCameraStream){alert('ยังไม่มีกล้อง');return;}
+  if(!window.MediaRecorder){alert('เบราว์เซอร์นี้ยังไม่รองรับการบันทึกวิดีโอ');return;}
+  try{
+    aiVideoChunks=[];
+    aiVideoMime=MediaRecorder.isTypeSupported('video/webm;codecs=vp9')?'video/webm;codecs=vp9':'video/webm';
+    aiVideoRecorder=new MediaRecorder(aiCameraStream,{mimeType:aiVideoMime});
+    aiVideoRecorder.ondataavailable=e=>{if(e.data&&e.data.size)aiVideoChunks.push(e.data);};
+    aiVideoRecorder.onstop=aiSaveRecordedVideo;
+    aiVideoStartedAt=Date.now();
+    aiVideoRecorder.start(1000);
+    document.getElementById('ai-video-start').disabled=true;
+    document.getElementById('ai-video-stop').disabled=false;
+    aiVideoStatus('กำลังบันทึกวิดีโอจากกล้อง...',true);
+  }catch(e){alert('เริ่มบันทึกวิดีโอไม่ได้: '+(e.message||e));}
+}
+function aiStopVideoRecord(){
+  if(aiVideoRecorder&&aiVideoRecorder.state!=='inactive'){
+    aiVideoRecorder.stop();
+    aiVideoStatus('กำลังเตรียมไฟล์วิดีโอ...',false);
+  }
+}
+function blobToDataURL(blob){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onload=()=>resolve(r.result);
+    r.onerror=()=>reject(r.error||new Error('อ่านไฟล์ไม่สำเร็จ'));
+    r.readAsDataURL(blob);
+  });
+}
+async function aiSaveRecordedVideo(){
+  const startBtn=document.getElementById('ai-video-start'),stopBtn=document.getElementById('ai-video-stop');
+  if(startBtn)startBtn.disabled=false;
+  if(stopBtn)stopBtn.disabled=true;
+  try{
+    const blob=new Blob(aiVideoChunks,{type:aiVideoMime.split(';')[0]||'video/webm'});
+    if(!blob.size){aiVideoStatus('ไม่มีข้อมูลวิดีโอให้บันทึก',false);return;}
+    if(blob.size>CAMERA_VIDEO_MAX_BYTES){aiVideoStatus('ไฟล์ใหญ่เกินไป กรุณาบันทึกคลิปสั้นลง',false);return;}
+    const dataUrl=await blobToDataURL(blob);
+    const target=(document.getElementById('ai-camera-target')?.value||'').trim();
+    const productId=document.getElementById('ai-camera-product')?.value||'';
+    const p=productId?products.find(x=>x.id===productId):null;
+    aiVideoStatus('กำลังส่งวิดีโอไป Google Drive...',false);
+    const ok=await sendDirectSync('cameraVideo',[{
+      name:'ai-camera-'+new Date().toISOString().replace(/[:.]/g,'-'),
+      target:target||p?.name||'กล้อง AI',
+      size:blob.size,
+      video:dataUrl,
+      note:'บันทึกจากปุ่มในหน้า กล้อง AI'
+    }]);
+    aiVideoStatus(ok?'ส่งวิดีโอไป Google Drive แล้ว':'ส่งวิดีโอไม่สำเร็จ กรุณาตรวจ Apps Script / Sheets URL',false);
+  }catch(e){aiVideoStatus('บันทึกวิดีโอไม่สำเร็จ: '+(e.message||e),false);}
+}
+
+async function aiFlipCamera(){
+  aiCameraFacing=aiCameraFacing==='environment'?'user':'environment';
+  await aiStartCamera(aiCameraFacing);
+}
+
+async function aiSetZoom(val){
+  aiCameraZoom=parseFloat(val);
+  const lbl=document.getElementById('cam-zoom-lbl');
+  if(lbl)lbl.textContent=aiCameraZoom.toFixed(1)+'×';
+  if(!aiCameraStream)return;
+  const track=aiCameraStream.getVideoTracks()[0];if(!track)return;
+  const caps=track.getCapabilities&&track.getCapabilities();
+  if(caps&&caps.zoom){
+    try{await track.applyConstraints({advanced:[{zoom:aiCameraZoom}]});}catch(e){}
+  }else{
+    const v=document.getElementById('ai-cam-video');
+    if(v)v.style.transform='scale('+aiCameraZoom+')';
+  }
+}
+function aiCaptureCamera(){
+  const v=document.getElementById('ai-cam-video');if(!v||!v.videoWidth){alert('ยังไม่มีกล้องหรือภาพ');return;}
+  const c=document.getElementById('ai-cam-canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+  aiCameraImage=c.toDataURL('image/jpeg',0.82);aiAnalyzeCamera();
+}
+async function aiCameraUpload(input){
+  const f=input.files&&input.files[0];if(!f)return;
+  try{
+    aiCameraImage=await compressImage(f,1200,0.78);
+    const img=document.getElementById('ai-cam-preview'),v=document.getElementById('ai-cam-video'),empty=document.getElementById('ai-cam-empty');
+    img.src=aiCameraImage;img.style.display='block';if(v)v.style.display='none';if(empty)empty.style.display='none';
+    await aiAnalyzeCamera();
+  }catch(e){alert('อ่านรูปไม่สำเร็จ: '+(e.message||e));}
+  finally{input.value='';}
+}
+async function aiAnalyzeCamera(){
+  if(!aiCameraImage){alert('ยังไม่มีภาพ');return;}
+  const target=(document.getElementById('ai-camera-target')?.value||'').trim();
+  const productId=document.getElementById('ai-camera-product')?.value||'';
+  const p=productId?products.find(x=>x.id===productId):null;
+  const res=document.getElementById('ai-camera-result'),countEl=document.getElementById('ai-count-value'),apply=document.getElementById('ai-camera-apply');
+  if(res)res.textContent='AI กำลังนับจากภาพ...';if(countEl)countEl.textContent='...';if(apply)apply.style.display='none';
+  try{
+    const body={mode:'camera_count',text:'นับจำนวน '+(target||p?.name||'สิ่งของในภาพ')+' แล้วตอบ action inventory_count เท่านั้น',image:aiCameraImage,context:aiContext()};
+    const j=await postAiChat(body);
+    const acts=Array.isArray(j.actions)?j.actions:extractActionsFromText(j.reply||'');
+    let act=acts.find(a=>/inventory_count|update_inventory_count/i.test(a.action||''))||acts[0]||null;
+    if(act){
+      const count=Number(act.actual||act.count||(act.items&&act.items[0]&&(act.items[0].actual||act.items[0].count)));
+      if(isFinite(count)){
+        aiCameraCountAction={action:'inventory_count',items:[{productId,targetName:target||p?.name||act.targetName||act.name,actual:count,unit:p?.unit||act.unit||''}]};
+        if(countEl)countEl.textContent=fmt(count);
+        if(apply)apply.style.display='block';
+      }
+    }
+    if(res)res.textContent=j.reply||'นับเสร็จแล้ว';
+  }catch(e){if(res)res.textContent='ผิดพลาด: '+(e.message||e);if(countEl)countEl.textContent='—';}
+}
+function aiApplyCameraCount(){
+  if(!aiCameraCountAction)return;
+  if(aiApplyInventoryCount(aiCameraCountAction)){
+    document.getElementById('ai-camera-result').textContent='ปรับยอดสต๊อกแล้ว'+(gsOn?' · ส่งเข้าคิว Sheets แล้ว':'');
+    document.getElementById('ai-camera-apply').style.display='none';
+    aiRefreshProductSelect();
+  }
+}
+
+// GOOGLE SHEETS SYNC
+function saveSyncQueue(){saveLS('org_syncq',syncQueue);}
+// Strip only legacy entry-level `photos` array (unused by Sheets). Keep per-item `photo`
+// and per-product `image` — Apps Script uploads them to Drive and stores the URL.
+function stripImages(data){return Array.isArray(data)?data.map(d=>{if(d&&typeof d==='object'){const{photos,...rest}=d;return rest;}return d;}):data;}
+async function sendDirectSync(type,data){
+  if(!type||!data||!data.length||directSyncing)return false;
+  directSyncing=true;
+  try{
+    const job={type,data,by:profile.name||'',ts:Date.now()};
+    return await pushToSheets(job);
+  }finally{directSyncing=false;}
+}
+function queueSync(type,data){
+  if(!data||!data.length)return;
+  syncQueue.push({type,data:stripImages(data),by:profile.name||'',ts:Date.now()});saveSyncQueue();
+  if(gsOn)flushSync();
+}
+async function flushSync(){
+  if(syncing||!gsOn||!gsUrl||!syncQueue.length)return;
+  syncing=true;
+  try{
+    while(syncQueue.length){
+      const job=syncQueue[0];
+      const ok=await pushToSheets(job);
+      if(!ok)break;
+      syncQueue.shift();saveSyncQueue();
+    }
+  }finally{syncing=false;}
+}
+async function pushToSheets(job){
+  // Try Netlify proxy first (configured URL stored server-side). Fallback to direct POST.
+  try{
+    const r=await fetch('/api/sheets?op=sync',{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(job)});
+    const j=await r.json().catch(()=>({}));
+    if(r.ok&&j&&j.ok!==false&&j.result?.ok!==false)return true;
+    if(j&&j.result&&j.result.ok===false)return false;
+  }catch(e){}
+  // Fallback: direct POST to Apps Script (text/plain to avoid CORS preflight)
+  try{
+    await fetch(gsUrl,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(job)});
+    return true;
+  }catch(e){return false;}
+}
+async function openProfileEdit(){
+  if(!(await requireAdmin('แก้ไขโปรไฟล์/การตั้งค่าเริ่มต้นของแอป')))return;
+  document.getElementById('setup').style.display='flex';
+}
+async function openSheetsSetup(){
+  if(!(await requireAdmin('เปลี่ยนแปลงการเชื่อมต่อ Google Sheets')))return;
+  document.getElementById('gs-code-box').textContent=APPS_SCRIPT_CODE;
+  document.getElementById('gs-url').value=gsUrl||'';
+  const openBtn=document.getElementById('gs-open-btn');
+  if(openBtn)openBtn.classList.toggle('show',Boolean(gsOn));
+  document.getElementById('ov-sheets').classList.add('open');
+}
+async function openSheetsMain(){
+  if(!(await requireAdmin('เปิด Google Sheets ขององค์กร')))return;
+  if(!gsOn){
+    // try recovering from server before showing setup
+    await recoverSheetsConfig();
+  }
+  if(!gsOn){
+    document.getElementById('gs-code-box').textContent=APPS_SCRIPT_CODE;
+    document.getElementById('gs-url').value=gsUrl||'';
+    const openBtn=document.getElementById('gs-open-btn');
+    if(openBtn)openBtn.classList.remove('show');
+    document.getElementById('ov-sheets').classList.add('open');
+    return;
+  }
+  if(gsSheetUrl){window.open(gsSheetUrl,'_blank');return;}
+  showToast('Google Sheets','🔍 กำลังค้นหาลิงก์สเปรดชีต...');
+  const url=await fetchSheetUrl();
+  if(url){window.open(url,'_blank');}
+  else{
+    showToast('Google Sheets','⚠️ เปิดลิงก์ไม่ได้ — ลองกด ⚙ เพื่อตรวจสอบการตั้งค่า (เช่น ยังไม่ได้กด Authorize ใน Apps Script)');
+    document.getElementById('gs-code-box').textContent=APPS_SCRIPT_CODE;
+    document.getElementById('gs-url').value=gsUrl||'';
+    const openBtn=document.getElementById('gs-open-btn');
+    if(openBtn)openBtn.classList.toggle('show',Boolean(gsOn));
+    document.getElementById('ov-sheets').classList.add('open');
+  }
+}
+async function syncFromSheets(){
+  if(!gsOn){showToast('Sheets','กรุณาเชื่อมต่อ Google Sheets ก่อน ⚙️');return;}
+  const st=document.getElementById('ad-gs-status');
+  if(st)st.textContent='⏳ กำลังดึงข้อมูลจาก Sheets...';
+  try{
+    const r=await fetch('/api/sheets?op=pull&type=all');
+    const j=await r.json();
+    if(!j.ok||!j.result)throw new Error(j.error||(j.result&&j.result.error)||'ดึงข้อมูลไม่สำเร็จ');
+    const data=j.result;
+    let added=0,updated=0;
+
+    // ── Merge catalog (product info: name, unit, price, cost, category) ──
+    if(Array.isArray(data.catalog)){
+      data.catalog.forEach(item=>{
+        if(!item.id||!item.name)return;
+        const p=products.find(x=>x.id===item.id);
+        if(p){
+          let chg=false;
+          ['name','unit','price','cost','reorder','category'].forEach(k=>{
+            if(item[k]!==undefined&&String(item[k])!==String(p[k])){p[k]=item[k];chg=true;}
+          });
+          if(chg){p.updatedAt=Date.now();updated++;}
+        }else{
+          clearDeletedProduct(item.id);
+          products.push({id:item.id,category:item.category||'other',name:item.name,unit:item.unit||'ชิ้น',
+            price:Number(item.price||0),cost:Number(item.cost||item.price||0),reorder:Number(item.reorder||0),
+            stock:0,updatedAt:Date.now()});
+          added++;
+        }
+      });
+    }
+
+    // ── Merge inventory (stock levels only) ──
+    if(Array.isArray(data.inventory)){
+      data.inventory.forEach(item=>{
+        if(!item.id)return;
+        const p=products.find(x=>x.id===item.id);
+        if(p&&item.stock!==undefined&&Number(item.stock)!==Number(p.stock)){
+          p.stock=Number(item.stock);p.updatedAt=Date.now();updated++;
+        }
+      });
+    }
+
+    if(added>0||updated>0){
+      saveInv();renderProductList();renderInventory();updateInvKPI();renderCount();
+      auditAdd('sync_from_sheets','ซิงค์จาก Sheets: +'+added+' ใหม่ · '+updated+' อัปเดต');
+      showToast('ซิงค์ Sheets','✅ เพิ่ม '+added+' รายการ · อัปเดต '+updated+' รายการ');
+      if(st)st.textContent='✅ ซิงค์สำเร็จ: +'+added+' ใหม่ · '+updated+' อัปเดต';
+    }else{
+      showToast('ซิงค์ Sheets','✅ ข้อมูลเป็นปัจจุบันแล้ว (ไม่มีการเปลี่ยนแปลง)');
+      if(st)st.textContent='✅ ข้อมูลเป็นปัจจุบันแล้ว';
+    }
+  }catch(e){
+    showToast('Sheets','❌ '+(e.message||e));
+    if(st)st.textContent='❌ ผิดพลาด: '+(e.message||e);
+  }
+}
+async function openActualSheet(){
+  let url=gsSheetUrl;
+  if(!url){showToast('Google Sheets','🔍 กำลังค้นหาลิงก์...');url=await fetchSheetUrl();}
+  if(url)window.open(url,'_blank');
+  else showToast('Google Sheets','⚠️ ยังเปิดไม่ได้ กรุณาบันทึก URL แล้วลองใหม่');
+}
+async function fetchSheetUrl(){
+  try{
+    const r=await fetch('/api/sheets?op=info');
+    if(r.ok){
+      const j=await r.json();
+      const u=j&&j.info&&j.info.url;
+      if(u){gsSheetUrl=u;localStorage.setItem('org_gs_sheet_url',u);return u;}
+    }
+  }catch(e){}
+  if(gsUrl){
+    try{
+      const r=await fetch(gsUrl,{redirect:'follow'});
+      if(r.ok){
+        const j=await r.json().catch(()=>null);
+        if(j&&j.url){gsSheetUrl=j.url;localStorage.setItem('org_gs_sheet_url',j.url);return j.url;}
+      }
+    }catch(e){}
+  }
+  return '';
+}
+function copyAppsScript(){
+  const t=APPS_SCRIPT_CODE;
+  navigator.clipboard?.writeText(t).then(()=>showToast('คัดลอก','📋 วางโค้ดใน script.google.com ได้เลย'),()=>{
+    const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();
+    showToast('คัดลอก','📋 คัดลอกแล้ว');
+  });
+}
+async function _applyGsUrl(url,onDone){
+  if(url&&!/^https:\/\/script\.google\.com\//.test(url)){alert('URL ต้องขึ้นต้นด้วย https://script.google.com/');return false;}
+  const changed=url!==gsUrl;
+  gsUrl=url;gsOn=Boolean(url);localStorage.setItem('org_gsurl',url);
+  if(changed){gsSheetUrl='';localStorage.removeItem('org_gs_sheet_url');}
+  if(url){try{await fetch('/api/sheets?op=config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});}catch(e){}}
+  updateInvKPI();if(onDone)onDone();
+  if(gsOn){
+    showToast('Google Sheets','🔗 เชื่อมต่อแล้ว กำลังส่งข้อมูลค้าง...');
+    if(products.length)queueSync('catalog',products);
+    if(products.length)queueSync('inventory',products);
+    if(finEntries.length)queueSync('daily',finEntries.slice(0,60));
+    if(finEntries.length)queueSync('finance',finEntries.slice(0,200));
+    flushSync();fetchSheetUrl().then(()=>onDone&&onDone());
+  }
+  return true;
+}
+async function saveSheetsUrl(){
+  const url=document.getElementById('gs-url').value.trim().replace(/\/$/,'');
+  await _applyGsUrl(url,()=>closeOv('ov-sheets'));
+}
+const APPS_SCRIPT_CODE=`// ====================================================================
+// แอปส้มสด — Google Apps Script
+// วิธีติดตั้ง:
+// 1. ไปที่ script.google.com → New project
+// 2. ลบโค้ดเดิม แล้ววางโค้ดนี้ทั้งหมด → บันทึก (Ctrl+S)
+// 3. Deploy → New deployment → Web app
+//    Execute as: Me | Who has access: Anyone
+// 4. Authorize → ยอมรับสิทธิ์
+// 5. คัดลอก Web app URL → วางในแอป (แอดมิน → Sheets)
+// ====================================================================
+
+const SPREADSHEET_NAME = 'แอปส้มสด - ข้อมูลธุรกิจ';
+const PROP_KEY         = 'APPSOMSOD_SHEET_ID';
+const IMG_FOLDER_NAME  = 'แอปส้มสด - รูปภาพ';
+const IMG_FOLDER_KEY   = 'APPSOMSOD_IMG_FOLDER';
+const VIDEO_FOLDER_NAME = 'แอปส้มสด - วิดีโอกล้อง AI';
+const VIDEO_FOLDER_KEY  = 'APPSOMSOD_VIDEO_FOLDER';
+const DRIVE_OWNER_EMAIL = 'kaveefruit.thailand@gmail.com';
+
+const SHEETS = {
+  daily:       { name:'บันทึกรายวัน',              headers:['วันที่','ประเภท','หมวดหมู่','รายการ','จำนวน','หน่วย','ราคา/หน่วย','ยอดรวม','หมายเหตุ','ผู้บันทึก','บันทึกเมื่อ','รูป'] },
+  inventory:   { name:'คลังสินค้า',                 headers:['รหัส','หมวดหมู่','ชื่อสินค้า','คงเหลือ','หน่วย','จุดสั่งซื้อ','ต้นทุน/หน่วย','มูลค่ารวม','อัปเดตล่าสุด','รูป'] },
+  movement:    { name:'เคลื่อนไหวสต๊อก',            headers:['เวลา','รหัส','ชื่อสินค้า','ประเภท','จำนวน','หน่วย','ก่อน','หลัง','หมายเหตุ','ผู้บันทึก','รูป'] },
+  count:       { name:'นับสต๊อก',                   headers:['วันที่','รหัส','ชื่อสินค้า','หมวดหมู่','ระบบ','จริง','ต่าง','หน่วย','ผู้ตรวจ','หมายเหตุ'] },
+  catalog:     { name:'รายการสินค้า',               headers:['รหัส','หมวดหมู่','ชื่อสินค้า','หน่วย','ราคา','คำอธิบาย'] },
+  production:  { name:'การผลิต',                    headers:['วันที่','Lot','น้ำตาล(kg)','เกลือ(kg)','กรดมะนาว(kg)','แพคติน(kg)','สี','นม(กป.)','ส้มA(kg)','ส้มB(kg)','น้ำแข็ง(kg)','น้ำส้ม(ml)','สถานะ','หมายเหตุ','บันทึก','ผู้บันทึก'] },
+  bottling:    { name:'บรรจุ',                      headers:['วันที่','Lot','ml/ขวด','จำนวน','ใช้ml','เหลือml','จำหน่าย','คลัง','วันจำหน่าย','หมายเหตุ','บันทึก','ผู้บันทึก'] },
+  emptyBottle: { name:'ขวดเปล่า',                  headers:['วันที่','ประเภท','ml','จำนวน','ราคา/ขวด','มูลค่า','คงเหลือ','หมายเหตุ','บันทึก','ผู้บันทึก'] },
+  finance:     { name:'รายรับ-รายจ่าย (P&L)',      headers:['วันที่','ที่มา','Lot','หมวด','รายละเอียด','รายรับ(฿)','รายจ่าย(฿)','สุทธิ(฿)','หมายเหตุ','ผู้บันทึก','อัปเดต','Key'] },
+  video:        { name:'วิดีโอกล้อง AI',            headers:['บันทึกเมื่อ','ชื่อไฟล์','สินค้า/เป้าหมาย','ผู้บันทึก','ขนาดไฟล์','ลิงก์ Drive','หมายเหตุ'] },
+  loginLocation:{ name:'ประวัติล็อกอินและพิกัด',    headers:['บันทึกเมื่อ','ID','ชื่อ','ชื่อจริง','เลเวล','วิธีล็อกอิน','สถานะพิกัด','Latitude','Longitude','Accuracy(m)','หมายเหตุ'] },
+};
+
+// ─── Get or create Spreadsheet ──────────────────────────────────────
+function getSS_() {
+  const p = PropertiesService.getScriptProperties();
+  let id = p.getProperty(PROP_KEY), ss = null;
+  if (id) { try { ss = SpreadsheetApp.openById(id); } catch(e) { ss = null; } }
+  if (!ss) {
+    ss = SpreadsheetApp.create(SPREADSHEET_NAME);
+    p.setProperty(PROP_KEY, ss.getId());
+    try { const d = ss.getSheets()[0]; if (d && d.getName() === 'Sheet1') ss.deleteSheet(d); } catch(e) {}
+  }
+  // Ensure all sheets exist with headers
+  Object.values(SHEETS).forEach(def => {
+    let sh = ss.getSheetByName(def.name);
+    if (!sh) sh = ss.insertSheet(def.name);
+    if (sh.getLastRow() === 0) {
+      sh.getRange(1, 1, 1, def.headers.length)
+        .setValues([def.headers])
+        .setFontWeight('bold')
+        .setBackground('#1a1f2e')
+        .setFontColor('#ffffff');
+      sh.setFrozenRows(1);
+    }
+  });
+  return ss;
+}
+
+// ─── Image upload to Drive ───────────────────────────────────────────
+function getImgFolder_() {
+  const p = PropertiesService.getScriptProperties();
+  let id = p.getProperty(IMG_FOLDER_KEY), f = null;
+  if (id) { try { f = DriveApp.getFolderById(id); } catch(e) { f = null; } }
+  if (!f) {
+    f = DriveApp.createFolder(IMG_FOLDER_NAME);
+    try { f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e) {}
+    p.setProperty(IMG_FOLDER_KEY, f.getId());
+  }
+  return f;
+}
+function saveImg_(dataUrl, hint) {
+  if (!dataUrl || typeof dataUrl !== 'string') return '';
+  const m = dataUrl.match(/^data:(image\\/[\\w+.\\-]+);base64,([\\s\\S]+)$/);
+  if (!m) { return /^https?:\\/\\//.test(dataUrl) ? dataUrl : ''; }
+  try {
+    const mime = m[1], bytes = Utilities.base64Decode(m[2]);
+    const ext  = (mime.split('/')[1] || 'jpg').split('+')[0];
+    const safe = String(hint || 'image').replace(/[^\\w\\-ก-๙ .]/g, '_').slice(0, 50);
+    const blob = Utilities.newBlob(bytes, mime, safe + '_' + Date.now() + '.' + ext);
+    const file = getImgFolder_().createFile(blob);
+    try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e) {}
+    return 'https://drive.google.com/uc?export=view&id=' + file.getId();
+  } catch(e) { return ''; }
+}
+
+function getVideoFolder_() {
+  const p = PropertiesService.getScriptProperties();
+  let id = p.getProperty(VIDEO_FOLDER_KEY), f = null;
+  if (id) { try { f = DriveApp.getFolderById(id); } catch(e) { f = null; } }
+  if (!f) {
+    f = DriveApp.createFolder(VIDEO_FOLDER_NAME);
+    try { f.addEditor(DRIVE_OWNER_EMAIL); } catch(e) {}
+    try { f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e) {}
+    p.setProperty(VIDEO_FOLDER_KEY, f.getId());
+  }
+  return f;
+}
+function saveVideo_(dataUrl, hint) {
+  if (!dataUrl || typeof dataUrl !== 'string') return '';
+  const m = dataUrl.match(/^data:(video\\/[\\w+.\\-]+);base64,([\\s\\S]+)$/);
+  if (!m) { return /^https?:\\/\\//.test(dataUrl) ? dataUrl : ''; }
+  try {
+    const mime = m[1], bytes = Utilities.base64Decode(m[2]);
+    const ext  = (mime.split('/')[1] || 'webm').split('+')[0];
+    const safe = String(hint || 'ai-camera-video').replace(/[^\\w\\-ก-๙ .]/g, '_').slice(0, 50);
+    const blob = Utilities.newBlob(bytes, mime, safe + '_' + Date.now() + '.' + ext);
+    const file = getVideoFolder_().createFile(blob);
+    try { file.addViewer(DRIVE_OWNER_EMAIL); } catch(e) {}
+    try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e) {}
+    return 'https://drive.google.com/file/d/' + file.getId() + '/view';
+  } catch(e) { return ''; }
+}
+
+// ─── Sheet helpers ────────────────────────────────────────────────────
+function append_(name, rows) {
+  if (!rows || !rows.length) return 0;
+  const sh = getSS_().getSheetByName(name);
+  if (!sh) return 0;
+  sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  return rows.length;
+}
+function upsert_(name, rows) {
+  if (!rows || !rows.length) return 0;
+  const sh   = getSS_().getSheetByName(name);
+  if (!sh) return 0;
+  const data = sh.getDataRange().getValues();
+  const idx  = {};
+  for (let i = 1; i < data.length; i++) idx[String(data[i][0])] = i + 1;
+  rows.forEach(r => {
+    const key = String(r[0]);
+    if (idx[key]) sh.getRange(idx[key], 1, 1, r.length).setValues([r]);
+    else sh.appendRow(r);
+  });
+  return rows.length;
+}
+
+// ─── Finance upsert (key-based) ───────────────────────────────────────
+function finSrc_(e) {
+  const k = String((e && e.facKey) || '');
+  if (k.indexOf('fac:lot:') === 0) return '🏭 ผลิต';
+  if (k.indexOf('fac:bot:') === 0) return '📦 ขาย';
+  if (k.indexOf('fac:emp:') === 0) return '🍶 ขวด';
+  if (e && e.manual) return '✋ เอง';
+  return 'อื่นๆ';
+}
+function upsertFin_(entries, by) {
+  if (!entries || !entries.length) return 0;
+  const sh   = getSS_().getSheetByName(SHEETS.finance.name);
+  const data = sh.getDataRange().getValues();
+  const keyCol = SHEETS.finance.headers.length;
+  const idx  = {};
+  for (let i = 1; i < data.length; i++) {
+    const k = String(data[i][keyCol - 1] || '');
+    if (k) idx[k] = i + 1;
+  }
+  const now = new Date();
+  let n = 0;
+  entries.forEach(e => {
+    const uid = String(e.facKey || e.id || '');
+    if (!uid) return;
+    if (e._deleted) {
+      if (idx[uid]) { sh.deleteRow(idx[uid]); delete idx[uid]; }
+      return;
+    }
+    const inc  = Number(e.incTotal || 0), exp = Number(e.expTotal || 0);
+    const net  = Number.isFinite(Number(e.net)) ? Number(e.net) : inc - exp;
+    const items = [].concat(e.incItems || [], e.expItems || []);
+    const desc  = items.map(i => i && i.name).filter(Boolean).join(' · ') || (e.note || '');
+    const cat   = (items[0] && items[0].category) || e.category || '';
+    const row   = [e.date||'', finSrc_(e), e.lot||'', cat, desc, inc, exp, net, e.note||'', by||'', now, uid];
+    if (idx[uid]) sh.getRange(idx[uid], 1, 1, row.length).setValues([row]);
+    else          { sh.appendRow(row); idx[uid] = sh.getLastRow(); }
+    n++;
+  });
+  return n;
+}
+
+// ─── doPost ──────────────────────────────────────────────────────────
+function doPost(e) {
+  try {
+    const b  = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    const t  = b.type || '', d = b.data || [], by = b.by || '', now = new Date();
+    let n = 0;
+
+    if (t === 'ping') {
+      const ss = getSS_();
+      return out({ ok:true, pong:true, name:ss.getName(), spreadsheetId:ss.getId(), url:ss.getUrl() });
+    }
+    else if (t === 'daily') {
+      const rows = [];
+      (d || []).forEach(entry => {
+        const date = entry.date || '';
+        (entry.expItems || []).forEach(i => {
+          const img = saveImg_(i.photo, date + '_' + (i.name || 'exp'));
+          rows.push([date, 'รายจ่าย', i.category||'', i.name||'', Number(i.qty||0), i.unit||'', Number(i.price||0), Number(i.total||0), '', by, now, img]);
+        });
+        (entry.incItems || []).forEach(i => {
+          const img = saveImg_(i.photo, date + '_' + (i.name || 'inc'));
+          rows.push([date, 'รายรับ', i.category||'', i.name||'', Number(i.qty||0), i.unit||'', Number(i.price||0), Number(i.total||0), '', by, now, img]);
+        });
+      });
+      n = append_(SHEETS.daily.name, rows);
+    }
+    else if (t === 'movement') {
+      n = append_(SHEETS.movement.name, (d || []).map(m => {
+        const img = saveImg_(m.image, (m.name||'move') + '_' + (m.kind||''));
+        return [new Date(m.ts||Date.now()), m.id||'', m.name||'', m.kind||'', Number(m.qty||0), m.unit||'', Number(m.before||0), Number(m.after||0), m.note||'', by, img];
+      }));
+    }
+    else if (t === 'count') {
+      n = append_(SHEETS.count.name, (d || []).map(c => [
+        c.date || new Date().toISOString().slice(0,10), c.id||'', c.name||'', c.category||'',
+        Number(c.system||0), Number(c.actual||0), Number(c.actual||0)-Number(c.system||0), c.unit||'', by, c.note||''
+      ]));
+    }
+    else if (t === 'inventory') {
+      n = upsert_(SHEETS.inventory.name, (d || []).map(it => {
+        const q = Number(it.stock||0), c = Number(it.cost||0);
+        const img = saveImg_(it.image, it.name);
+        return [it.id||'', it.category||'', it.name||'', q, it.unit||'', Number(it.reorder||0), c, q*c, now, img];
+      }));
+    }
+    else if (t === 'catalog') {
+      n = upsert_(SHEETS.catalog.name, (d || []).map(it => [
+        it.id||'', it.category||'', it.name||'', it.unit||'', Number(it.price||0), it.description||''
+      ]));
+    }
+    else if (t === 'sales') {
+      n = append_(SHEETS.daily.name, (d || []).map(s => [
+        s.date || new Date(s.ts || Date.now()).toISOString().slice(0,10),
+        'รายรับ',
+        s.category || 'sales',
+        s.name || '',
+        Number(s.qty || s.count || 0),
+        s.unit || '',
+        Number(s.price || 0),
+        Number(s.total || 0) || Number(s.qty || s.count || 0) * Number(s.price || 0),
+        s.note || (s.room ? 'ห้อง: ' + s.room : ''),
+        by,
+        now,
+        ''
+      ]));
+    }
+    else if (t === 'production') {
+      n = append_(SHEETS.production.name, (d || []).map(p => [
+        p.date||'', p.lot||'', Number(p.sugar||0), Number(p.salt||0), Number(p.citric||0),
+        Number(p.pectin||0), Number(p.color||0), Number(p.milk||0), Number(p.orangeA||0),
+        Number(p.orangeB||0), Number(p.ice||0), Number(p.juiceMl||0),
+        p.status||'ผลิตเสร็จ', p.note||'', now, by
+      ]));
+    }
+    else if (t === 'bottling') {
+      n = append_(SHEETS.bottling.name, (d || []).map(b => {
+        const s=Number(b.size||0), q=Number(b.qty||0), u=Number(b.used||s*q), so=Number(b.sold||0);
+        return [b.date||'', b.lot||'', s, q, u, Number(b.remaining||0), so, q-so, b.soldDate||'', b.note||'', now, by];
+      }));
+    }
+    else if (t === 'emptyBottle') {
+      n = append_(SHEETS.emptyBottle.name, (d || []).map(e => {
+        const q=Number(e.qty||0), pr=Number(e.price||0);
+        return [e.date||'', e.kind||'ซื้อเข้า', Number(e.size||0), q, pr, Math.abs(q)*pr, Number(e.balance||0), e.note||'', now, by];
+      }));
+    }
+    else if (t === 'finance') {
+      n = upsertFin_(d, by);
+    }
+    else if (t === 'cameraVideo') {
+      n = append_(SHEETS.video.name, (d || []).map(v => {
+        const url = saveVideo_(v.video, v.name || v.target || 'ai-camera-video');
+        return [now, v.name || '', v.target || '', by, Number(v.size || 0), url, v.note || ''];
+      }));
+    }
+    else if (t === 'loginLocation') {
+      n = append_(SHEETS.loginLocation.name, (d || []).map(x => [
+        x.at ? new Date(x.at) : new Date(x.ts || Date.now()),
+        x.id4 || '',
+        x.name || by || '',
+        x.realName || '',
+        x.level || '',
+        x.method || '',
+        x.status || '',
+        x.lat || '',
+        x.lng || '',
+        x.accuracy || '',
+        x.error || ''
+      ]));
+    }
+    else {
+      throw new Error('ไม่รู้จัก type: ' + t);
+    }
+
+    const ss = getSS_();
+    return out({ ok:true, count:n, spreadsheetId:ss.getId(), url:ss.getUrl() });
+
+  } catch(err) {
+    return out({ ok:false, error:String(err) });
+  }
+}
+
+// ─── doGet (ping + health check) ─────────────────────────────────────
+function doGet(e) {
+  const ss = getSS_();
+  return out({ ok:true, name:ss.getName(), spreadsheetId:ss.getId(), url:ss.getUrl() });
+}
+
+function out(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}`;
+
+// ADMIN AUTH — 5-minute unlock window
+const ADMIN_CODE='Somsod12345';
+const ADMIN_UNLOCK_MS=5*60*1000;
+let adminResolve=null;
+let adminUnlockTimer=null;
+function adminUnlockedUntil(){
+  const v=Number(sessionStorage.getItem('org_admin_until')||0);
+  return v>Date.now()?v:0;
+}
+function setAdminUnlocked(){
+  const until=Date.now()+ADMIN_UNLOCK_MS;
+  sessionStorage.setItem('org_admin_until',String(until));
+  updateAdminBadge();
+  startAdminBadgeTicker();
+  if(adminUnlockTimer)clearTimeout(adminUnlockTimer);
+  adminUnlockTimer=setTimeout(()=>{
+    sessionStorage.removeItem('org_admin_until');
+    updateAdminBadge();
+    showToast('แอดมิน','🔒 หมดเวลาสิทธิ์แอดมิน — ต้องใส่รหัสอีกครั้ง');
+  },ADMIN_UNLOCK_MS+100);
+}
+function updateAdminBadge(){
+  const el=document.getElementById('admin-badge');
+  const lbl=document.getElementById('admin-lbl');
+  const until=adminUnlockedUntil();
+  if(!el)return;
+  if(until){
+    const left=Math.max(0,Math.round((until-Date.now())/1000));
+    el.style.display='inline-flex';
+    el.textContent='🔓 '+Math.floor(left/60)+':'+String(left%60).padStart(2,'0');
+    if(lbl)lbl.style.display='none';
+  }else{
+    el.style.display='none';
+    // Keep the hidden row hidden even when locked — the user explicitly asked to hide it
+    if(lbl&&lbl.parentElement)lbl.parentElement.style.display='none';
+  }
+}
+// Live-countdown badge: only tick while the admin is actually unlocked.
+// Avoids burning a setInterval forever when nobody is in admin mode.
+let _adminBadgeTicker=null;
+function startAdminBadgeTicker(){
+  if(_adminBadgeTicker)return;
+  _adminBadgeTicker=setInterval(()=>{
+    if(adminUnlockedUntil()<=Date.now()){clearInterval(_adminBadgeTicker);_adminBadgeTicker=null;updateAdminBadge();return;}
+    updateAdminBadge();
+  },1000);
+}
+function requireAdmin(message,forceFresh){
+  if(!forceFresh&&adminUnlockedUntil()>Date.now()){
+    return Promise.resolve(true);
+  }
+  if(forceFresh){
+    sessionStorage.removeItem('org_admin_until');
+    if(adminUnlockTimer)clearTimeout(adminUnlockTimer);
+  }
+  return new Promise(resolve=>{
+    const mEl=document.getElementById('admin-msg');
+    if(mEl)mEl.textContent=(message||'การทำรายการนี้ต้องใช้รหัสแอดมิน')+(forceFresh?' — ต้องใส่รหัสใหม่ทุกครั้ง':' — ปลดล็อคครั้งเดียวใช้ได้ 5 นาที');
+    const ov=document.getElementById('ov-admin');
+    const inp=document.getElementById('admin-pass');
+    const err=document.getElementById('admin-err');
+    if(err)err.style.display='none';
+    if(inp)inp.value='';
+    adminResolve=resolve;
+    if(ov)ov.classList.add('open');
+    setTimeout(()=>inp&&inp.focus(),50);
+  });
+}
+function submitAdmin(){
+  const inp=document.getElementById('admin-pass');
+  const err=document.getElementById('admin-err');
+  if(inp&&inp.value===ADMIN_CODE){
+    document.getElementById('ov-admin').classList.remove('open');
+    setAdminUnlocked();
+    showToast('ปลดล็อคแอดมิน','🔓 สามารถแก้ไขได้ 5 นาที จากนี้');
+    if(adminResolve){const r=adminResolve;adminResolve=null;r(true);}
+  }else{
+    if(err)err.style.display='block';
+    if(inp){inp.value='';inp.focus();}
+  }
+}
+function cancelAdmin(){
+  document.getElementById('ov-admin').classList.remove('open');
+  if(adminResolve){const r=adminResolve;adminResolve=null;r(false);}
+}
+function lockAdminNow(){
+  sessionStorage.removeItem('org_admin_until');
+  if(adminUnlockTimer)clearTimeout(adminUnlockTimer);
+  updateAdminBadge();
+  showToast('แอดมิน','🔒 ล็อคสิทธิ์แอดมินแล้ว');
+}
+
+// PERMISSIONS + AUDIT LOG
+function isMasterAdmin(){
+  return !!(profile&&profile.email&&profile.email.toLowerCase()===MASTER_ADMIN_EMAIL);
+}
+function getCurrentUserRoleId(){
+  const em=(profile&&profile.email||'').toLowerCase();
+  if(!em)return '';
+  const ur=userRoles.find(u=>u.email.toLowerCase()===em);
+  return ur?ur.roleId:'';
+}
+function hasPerm(permKey){
+  if(isMasterAdmin())return true;
+  const rid=getCurrentUserRoleId();
+  if(!rid)return false;
+  const role=roles.find(r=>r.id===rid);
+  if(!role)return false;
+  return !!(role.perms&&role.perms[permKey]);
+}
+function autoUnlockMasterAdmin(){
+  if(isMasterAdmin()){
+    // Master admin still needs password to manage roles, but is allowed into admin page
+    // No auto unlock — password required per explicit user request
+  }
+}
+async function requirePerm(permKey,message){
+  if(hasPerm(permKey))return true;
+  // Level 4 Manager unlocks product / ID edit permissions via SS000 code
+  const me=currentUserObj&&currentUserObj();
+  if(me&&me.level===4&&['edit_inventory','edit_room','edit_sale','edit_category','edit_finance'].includes(permKey)){
+    const v=prompt((message||'การกระทำนี้ต้องใช้สิทธิ์')+' — กรุณาใส่รหัส Manager (SS000):');
+    if(v===MANAGER_CODE){setAdminUnlocked();return true;}
+    if(v!==null)alert('รหัสไม่ถูกต้อง');
+    return false;
+  }
+  // fallback — gate with password via legacy requireAdmin()
+  const ok=await requireAdmin(message||'การกระทำนี้ต้องใช้สิทธิ์');
+  return ok;
+}
+function auditAdd(action,target,details){
+  const rec={ts:Date.now(),by:profile.name||'ไม่ระบุ',byEmail:profile.email||'',action,target:target||'',details:details||''};
+  auditLog.unshift(rec);
+  if(auditLog.length>200)auditLog.length=200;
+  saveLS('org_audit',auditLog);
+  scheduleAppStatePush('audit');
+  if(currentApp==='admin')renderAudit();
+}
+async function clearAudit(){
+  if(!(await requireAdmin('ล้างบันทึกการแก้ไขทั้งหมด')))return;
+  if(!confirm('ล้างบันทึกการแก้ไขทั้งหมด?'))return;
+  auditLog=[];localStorage.setItem('org_audit','[]');renderAudit();
+  showToast('แอดมิน','🗑️ ล้างบันทึกการแก้ไขแล้ว');
+}
+
+// ADMIN PAGE
+function switchAdminTab(id,btn){
+  document.querySelectorAll('.admin-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.admin-section').forEach(s=>s.classList.remove('active'));
+  document.getElementById('ad-'+id).classList.add('active');
+  if(id==='roles')renderRoles();
+  else if(id==='users')renderUserRoles();
+  else if(id==='audit')renderAudit();
+  else if(id==='sheets')renderAdminSheets();
+  else if(id==='connect')renderAdminConnect();
+  else if(id==='reg')renderRegPending();
+  else if(id==='ids')renderIdList();
+  else if(id==='units')renderUnitRules();
+  else if(id==='stock')renderStockBuckets();
+  else if(id==='facsync')renderFacSync();
+  else if(id==='rooms')renderRoomPurposeSettings();
+}
+async function openRoomPurposeSettings(){
+  if(!(await requirePerm('edit_room','ตั้งค่าประเภทชั้นของห้อง')))return;
+  await switchApp('admin');
+  const btn=[...document.querySelectorAll('.admin-tab')].find(b=>b.textContent.indexOf('ตั้งค่าห้อง')>=0);
+  if(btn)switchAdminTab('rooms',btn);
+}
+function renderRoomPurposeSettings(){
+  const box=document.getElementById('room-purpose-list');if(!box)return;
+  box.innerHTML=[1,2,3,4].map(lv=>{
+    const purpose=roomPurposeForLevel(lv);
+    const meta=ROOM_PURPOSE_META[purpose]||ROOM_PURPOSE_META.group;
+    const opts=Object.keys(ROOM_PURPOSE_META).map(k=>{
+      const m=ROOM_PURPOSE_META[k];
+      return `<option value="${k}"${purpose===k?' selected':''}>${m.icon} ${m.label}</option>`;
+    }).join('');
+    const roomCount=rooms.filter(r=>roomLevel(r)===lv).length;
+    return `<div class="room-purpose-row">
+      <div class="room-purpose-lv">ชั้น ${lv}</div>
+      <div>
+        <div class="room-purpose-name">${escHtml(LEVEL_LABELS[lv]||meta.label)}</div>
+        <div class="room-purpose-sub">${escHtml(meta.hint)} · มี ${roomCount} ห้อง/หมวด</div>
+      </div>
+      <select id="rp-lv-${lv}">${opts}</select>
+    </div>`;
+  }).join('')+
+  `<div class="room-purpose-preview">
+    <span class="room-purpose-pill">ค่าเริ่มต้น: ชั้น 2 ห้องประชุม</span>
+    <span class="room-purpose-pill">ค่าเริ่มต้น: ชั้น 3-4 ห้องขาย</span>
+  </div>`;
+}
+function saveRoomPurposeSettings(){
+  const next={};
+  for(let lv=1;lv<=4;lv++){
+    const el=document.getElementById('rp-lv-'+lv);
+    next[lv]=(el&&ROOM_PURPOSE_META[el.value])?el.value:ROOM_PURPOSE_DEFAULT[lv];
+  }
+  roomLevelPurposes=next;
+  saveLS(ROOM_PURPOSE_KEY,roomLevelPurposes);
+  applyRoomPurposeLabels();
+  let changed=false;
+  rooms.forEach(r=>{
+    if(isSellable(r)){
+      if(!Array.isArray(r.sales)){r.sales=[];changed=true;}
+      if(!r.customer){r.customer={};changed=true;}
+    }
+  });
+  if(changed)saveRooms();
+  auditAdd('room_purpose_settings','ตั้งค่าประเภทชั้น',JSON.stringify(roomLevelPurposes));
+  renderRoomPurposeSettings();
+  renderRooms();
+  showToast('ตั้งค่าห้อง','บันทึกแล้ว · ชั้น 3-4 เป็นห้องขายตามค่าเริ่มต้น');
+}
+function renderAdminSheets(){
+  const code=document.getElementById('ad-gs-code-box');
+  if(code)code.textContent=APPS_SCRIPT_CODE;
+  const urlEl=document.getElementById('ad-gs-url');
+  if(urlEl)urlEl.value=gsUrl||'';
+  const openBtn=document.getElementById('ad-sheets-open');
+  if(openBtn)openBtn.style.display=gsOn?'inline-block':'none';
+  const st=document.getElementById('ad-gs-status');
+  if(st){
+    if(gsOn)st.innerHTML='<span style="color:#059669">●</span> เชื่อมต่อ Google Sheets แล้ว'+(gsSheetUrl?' · <a href="'+escAttr(gsSheetUrl)+'" target="_blank" style="color:var(--accent)">เปิดชีท</a>':'');
+    else st.innerHTML='<span style="color:#94a3b8">●</span> ยังไม่ได้เชื่อมต่อ';
+  }
+}
+function renderAdminConnect(){
+  const fb=document.getElementById('ad-fb-url');
+  const fbDef=document.getElementById('ad-fb-default');
+  if(fb)fb.value=(localStorage.getItem('org_fburl')||'');
+  if(fbDef)fbDef.textContent=DEFAULT_FB_URL;
+  const st=document.getElementById('ad-connect-status');
+  if(st){
+    const main=appStateOn
+      ? '<span style="color:#059669">●</span> Netlify Database พร้อมใช้งาน · realtime poll ทุก '+Math.round(APP_STATE_PULL_MS/1000)+' วินาที'
+      : '<span style="color:#d97706">●</span> Netlify Database ยังเชื่อมไม่สำเร็จ · ใช้ข้อมูลในเครื่องชั่วคราว';
+    const rt=fbRealtimeOn?'realtime สำรองเปิดอยู่':'realtime สำรองยังไม่เปิด';
+    const legacy=fbOn
+      ? '<br/><span style="color:#64748b">●</span> Firebase สำรองเชื่อมต่อแล้ว · '+rt
+      : '<br/><span style="color:#94a3b8">●</span> Firebase สำรองไม่ได้เชื่อม';
+    st.innerHTML=main+legacy;
+  }
+}
+async function saveSheetsUrlFromAdmin(){
+  const url=document.getElementById('ad-gs-url').value.trim().replace(/\/$/,'');
+  const ok=await _applyGsUrl(url,()=>renderAdminSheets());
+  if(!ok)return;
+  if(!gsOn)showToast('Google Sheets','ลบการเชื่อมต่อแล้ว');
+  auditAdd('edit_sheets','เปลี่ยน Web app URL',url||'(ล้างค่า)');
+}
+async function saveConnectionSettings(){
+  if(!(await requireAdmin('เปลี่ยนการเชื่อมต่อ Firebase',true)))return;
+  const fb=document.getElementById('ad-fb-url').value.trim().replace(/\/$/,'');
+  const prevFb=fbUrl;
+  if(fb){localStorage.setItem('org_fburl',fb);fbUrl=fb;}
+  else{localStorage.removeItem('org_fburl');fbUrl='';fbOn=false;fbRealtimeOn=false;stopFirebaseRealtime();}
+  localStorage.removeItem('org_gcid');
+  auditAdd('edit_connection','ปรับการเชื่อมต่อสำรอง','Firebase: '+(fb||'(ปิดการเชื่อมต่อสำรอง)'));
+  showToast('เชื่อมต่อ','💾 บันทึกแล้ว');
+  if(fbUrl&&fbUrl!==prevFb)connectFB();
+  renderAdminConnect();
+}
+function renderAdmin(){
+  const who=document.getElementById('admin-who');
+  if(who){
+    const badge=isMasterAdmin()?' · 👑 ผู้ดูแลหลัก':'';
+    who.textContent=(profile.email||profile.name||'—')+badge;
+  }
+  renderRoles();renderUserRoles();renderAudit();renderAdminSheets();renderAdminConnect();renderRoomPurposeSettings();
+  renderRegPending();renderIdList();renderUnitRules();renderStockBuckets();
+}
+function renderRoles(){
+  const box=document.getElementById('role-list');if(!box)return;
+  box.innerHTML=roles.map(r=>{
+    const permCount=Object.values(r.perms||{}).filter(Boolean).length;
+    const tag=r.builtin?'<span class="at-tag">ในตัว</span>':'';
+    return `<div class="ad-role-row">
+      <div style="flex:1">
+        <div class="rl-name">${tag}${escHtml(r.name)}</div>
+        <div class="rl-perms">สิทธิ์: ${permCount} รายการ</div>
+      </div>
+      <button class="rl-btn" onclick="openEditRole('${r.id}')">แก้ไข</button>
+      ${r.builtin?'':`<button class="rl-btn danger" onclick="delRole('${r.id}')">ลบ</button>`}
+    </div>`;
+  }).join('');
+}
+function renderUserRoles(){
+  const box=document.getElementById('user-role-list');if(!box)return;
+  if(!userRoles.length){box.innerHTML='<div style="font-size:11px;color:var(--muted);text-align:center;padding:14px">ยังไม่ได้กำหนดตำแหน่งให้ผู้ใช้ใด — กด "+ กำหนดตำแหน่ง" ด้านบน<br/><small>ผู้ดูแลหลัก: '+MASTER_ADMIN_EMAIL+'</small></div>';return;}
+  box.innerHTML=userRoles.map((u,i)=>{
+    return `<div class="ad-user-row">
+      <div class="ur-email">${escHtml(u.email)}</div>
+      <select onchange="changeUserRole(${i},this.value)">${roles.map(r=>`<option value="${r.id}" ${r.id===u.roleId?'selected':''}>${escHtml(r.name)}</option>`).join('')}</select>
+      <button class="ur-btn" onclick="removeUserRole(${i})">ลบ</button>
+    </div>`;
+  }).join('');
+}
+function renderAudit(){
+  const box=document.getElementById('audit-list');if(!box)return;
+  if(!auditLog.length){box.innerHTML=emptyMsg('ยังไม่มีบันทึกการแก้ไข');return;}
+  box.innerHTML=auditLog.map(a=>{
+    const when=new Date(a.ts);
+    const dd=when.toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'});
+    const tt=when.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
+    const emTag=a.byEmail?`<span class="at-tag">${escHtml(a.byEmail)}</span>`:'';
+    return `<div class="audit-row">
+      <div class="at-when">${dd}<br/>${tt}</div>
+      <div>
+        <div class="at-who">${emTag}${escHtml(a.by||'—')}</div>
+        <div class="at-act">${escHtml(a.action)} — ${escHtml(a.target||'')}</div>
+        ${a.details?`<div class="at-det">${escHtml(a.details)}</div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+async function openAddRole(){
+  if(!(await requireAdmin('เพิ่มตำแหน่งใหม่ — การจัดการสิทธิ์ต้องใส่รหัสทุกครั้ง',true)))return;
+  document.getElementById('m-role-id').value='';
+  document.getElementById('m-role-name').value='';
+  document.getElementById('ov-role-title').textContent='➕ เพิ่มตำแหน่งใหม่';
+  document.getElementById('m-role-perms').innerHTML=ALL_PERMS.map(p=>`<label class="perm-item"><input type="checkbox" data-perm="${p.k}"/> ${escHtml(p.l)}</label>`).join('');
+  document.getElementById('ov-role').classList.add('open');
+}
+async function openEditRole(id){
+  if(!(await requireAdmin('แก้ไขตำแหน่ง — การจัดการสิทธิ์ต้องใส่รหัสทุกครั้ง',true)))return;
+  const r=roles.find(x=>x.id===id);if(!r)return;
+  document.getElementById('m-role-id').value=id;
+  document.getElementById('m-role-name').value=r.name;
+  document.getElementById('ov-role-title').textContent='✎ แก้ไขตำแหน่ง: '+r.name;
+  document.getElementById('m-role-perms').innerHTML=ALL_PERMS.map(p=>{
+    const on=r.perms&&r.perms[p.k]?'checked':'';
+    return `<label class="perm-item"><input type="checkbox" data-perm="${p.k}" ${on}/> ${escHtml(p.l)}</label>`;
+  }).join('');
+  document.getElementById('ov-role').classList.add('open');
+}
+function doSaveRole(){
+  const id=document.getElementById('m-role-id').value;
+  const name=document.getElementById('m-role-name').value.trim();
+  if(!name){alert('กรุณากรอกชื่อตำแหน่ง');return;}
+  const perms={};
+  document.querySelectorAll('#m-role-perms input[type=checkbox]').forEach(cb=>{if(cb.checked)perms[cb.dataset.perm]=true;});
+  if(id){
+    const r=roles.find(x=>x.id===id);if(!r)return;
+    const before={name:r.name,perms:{...r.perms}};
+    r.name=name;r.perms=perms;
+    auditAdd('edit_role','ตำแหน่ง: '+name,'ก่อน: '+JSON.stringify(before.perms)+' | หลัง: '+JSON.stringify(perms));
+  }else{
+    const rid='role_'+Date.now();
+    roles.push({id:rid,name,perms});
+    auditAdd('add_role','ตำแหน่ง: '+name,'สิทธิ์: '+Object.keys(perms).join(', '));
+  }
+  saveLS('org_roles',roles);
+  closeOv('ov-role');renderRoles();renderUserRoles();updateAdminTabVisibility();
+  showToast('แอดมิน','✅ บันทึกตำแหน่งแล้ว');
+}
+async function delRole(id){
+  if(!(await requireAdmin('ลบตำแหน่ง — การจัดการสิทธิ์ต้องใส่รหัสทุกครั้ง',true)))return;
+  const r=roles.find(x=>x.id===id);if(!r||r.builtin)return;
+  if(!confirm('ลบตำแหน่ง "'+r.name+'"? (ผู้ใช้ที่เคยอยู่ในตำแหน่งนี้จะถูกลบสิทธิ์)'))return;
+  roles=roles.filter(x=>x.id!==id);
+  userRoles=userRoles.filter(u=>u.roleId!==id);
+  saveLS('org_roles',roles);
+  saveLS('org_user_roles',userRoles);
+  auditAdd('delete_role','ตำแหน่ง: '+r.name);
+  renderRoles();renderUserRoles();updateAdminTabVisibility();
+}
+async function openAssignUser(){
+  if(!(await requireAdmin('กำหนดตำแหน่งให้ผู้ใช้ — การจัดการสิทธิ์ต้องใส่รหัสทุกครั้ง',true)))return;
+  if(!roles.length){alert('กรุณาเพิ่มตำแหน่งก่อน');return;}
+  document.getElementById('m-ur-email').value='';
+  document.getElementById('m-ur-role').innerHTML=roles.map(r=>`<option value="${r.id}">${escHtml(r.name)}</option>`).join('');
+  document.getElementById('ov-user-role').classList.add('open');
+}
+function doSaveUserRole(){
+  const email=document.getElementById('m-ur-email').value.trim().toLowerCase();
+  const roleId=document.getElementById('m-ur-role').value;
+  if(!email||!email.includes('@')){alert('กรุณากรอกอีเมลที่ถูกต้อง');return;}
+  const role=roles.find(r=>r.id===roleId);if(!role)return;
+  const existing=userRoles.find(u=>u.email.toLowerCase()===email);
+  if(existing)existing.roleId=roleId;
+  else userRoles.push({email,roleId});
+  saveLS('org_user_roles',userRoles);
+  auditAdd('assign_role','ผู้ใช้: '+email,'ตำแหน่ง: '+role.name);
+  closeOv('ov-user-role');renderUserRoles();updateAdminTabVisibility();
+  showToast('แอดมิน','✅ กำหนดตำแหน่งให้ '+email+' แล้ว');
+}
+async function changeUserRole(idx,roleId){
+  if(!(await requireAdmin('เปลี่ยนตำแหน่งผู้ใช้ — การจัดการสิทธิ์ต้องใส่รหัสทุกครั้ง',true))){renderUserRoles();return;}
+  const u=userRoles[idx];if(!u)return;
+  const role=roles.find(r=>r.id===roleId);if(!role)return;
+  const before=u.roleId;
+  u.roleId=roleId;
+  saveLS('org_user_roles',userRoles);
+  auditAdd('change_user_role','ผู้ใช้: '+u.email,'เดิม: '+(roles.find(r=>r.id===before)?.name||'—')+' → '+role.name);
+  renderUserRoles();updateAdminTabVisibility();
+}
+async function removeUserRole(idx){
+  if(!(await requireAdmin('ลบตำแหน่งของผู้ใช้ — การจัดการสิทธิ์ต้องใส่รหัสทุกครั้ง',true)))return;
+  const u=userRoles[idx];if(!u)return;
+  if(!confirm('ลบการกำหนดตำแหน่งให้ '+u.email+'?'))return;
+  userRoles.splice(idx,1);
+  saveLS('org_user_roles',userRoles);
+  auditAdd('remove_user_role','ผู้ใช้: '+u.email);
+  renderUserRoles();updateAdminTabVisibility();
+}
+
+// CHAT DRAWERS (up to MAX_CHAT_ROOMS side popups with stickers)
+let chatRoomsList=[]; // {id,name,icon,color,messages:[]}
+let openChatIds=[];   // ids currently shown as popups
+
+function loadChatRooms(){
+  try{chatRoomsList=getLS('org_chat_rooms',[]);}catch(e){chatRoomsList=[];}
+  if(!chatRoomsList.length){
+    // Migrate any legacy global chat messages into a default room
+    const legacy=(typeof cdMessages!=='undefined'&&Array.isArray(cdMessages))?cdMessages:[];
+    chatRoomsList=[{id:'chat_main',name:'ทั่วไป',icon:'💬',color:'#4f8ef7',messages:legacy.slice()}];
+    saveChatRoomsList();
+  }
+  // Remove any legacy AI assistant room left over from previous versions
+  const beforeLen=chatRoomsList.length;
+  chatRoomsList=chatRoomsList.filter(c=>!c.isAI&&c.id!=='chat_ai');
+  if(chatRoomsList.length!==beforeLen)saveChatRoomsList();
+}
+function saveChatRoomsList(){saveLS('org_chat_rooms',chatRoomsList);scheduleAppStatePush('chatRooms');}
+function findChatRoom(id){return chatRoomsList.find(c=>c.id===id);}
+function renderSidebarChatRooms(){
+  const box=document.getElementById('sb-chat-list');if(!box)return;
+  const addBtn=document.getElementById('sb-chat-add');
+  const userRoomCount=chatRoomsList.length;
+  if(addBtn){addBtn.disabled=userRoomCount>=MAX_CHAT_ROOMS;addBtn.title=addBtn.disabled?`ถึงขีดจำกัด ${MAX_CHAT_ROOMS} ห้องแล้ว`:`เพิ่มห้องแชท (สูงสุด ${MAX_CHAT_ROOMS} ห้อง)`;}
+  if(!chatRoomsList.length){box.innerHTML='<div class="sb-chat-empty">ยังไม่มีห้องแชท</div>';return;}
+  box.innerHTML=chatRoomsList.map(c=>{
+    const isOpen=openChatIds.includes(c.id);
+    const unread=c._unread||0;
+    const delBtn=`<button class="sci-del" onclick="event.stopPropagation();delChatRoom('${c.id}')" title="ลบห้อง">✕</button>`;
+    return `<div class="sb-chat-item${isOpen?' open':''}${unread?' has-unread':''}" onclick="toggleChatRoom('${c.id}')" title="${escAttr(c.name)}">
+      <span class="sci-ic" style="color:${c.color}">${c.icon}</span>
+      <span class="sci-nm">${escHtml(c.name)}</span>
+      <span class="sci-dot"></span>
+      ${delBtn}
+    </div>`;
+  }).join('');
+}
+async function addChatRoom(){
+  const userRoomCount=chatRoomsList.length;
+  if(userRoomCount>=MAX_CHAT_ROOMS){showToast('ห้องแชท','สร้างได้สูงสุด '+MAX_CHAT_ROOMS+' ห้อง');return;}
+  const name=prompt('ตั้งชื่อห้องแชท:','ห้องแชทใหม่');
+  if(!name||!name.trim())return;
+  const palette=['💬','🗨️','📢','🔔','💡','🎯','🚀','📋','⚡','🛎'];
+  const icon=palette[chatRoomsList.length%palette.length];
+  const color=COLORS[(chatRoomsList.length+2)%COLORS.length];
+  const id='chat_'+Date.now();
+  chatRoomsList.push({id,name:name.trim().slice(0,30),icon,color,messages:[]});
+  saveChatRoomsList();renderSidebarChatRooms();
+  toggleChatRoom(id,true);
+  try{auditAdd('add_chat_room','ห้องแชท: '+name);}catch(e){}
+}
+async function delChatRoom(id){
+  if(!confirm('ลบห้องแชทนี้? ข้อความทั้งหมดจะหายไป'))return;
+  const idx=openChatIds.indexOf(id);
+  if(idx>=0)openChatIds.splice(idx,1);
+  chatRoomsList=chatRoomsList.filter(c=>c.id!==id);
+  saveChatRoomsList();renderSidebarChatRooms();renderChatDrawers();
+}
+function toggleChatRoom(id,forceOpen){
+  const idx=openChatIds.indexOf(id);
+  if(idx>=0&&!forceOpen){
+    openChatIds.splice(idx,1);
+  }else if(idx<0){
+    // Make sure we don't exceed 3 open at once (MAX_CHAT_ROOMS)
+    if(openChatIds.length>=MAX_CHAT_ROOMS)openChatIds.shift();
+    openChatIds.push(id);
+    const c=findChatRoom(id);if(c)c._unread=0;
+    syncDrawerChatFromServer(id);
+  }
+  renderSidebarChatRooms();renderChatDrawers();
+}
+function closeChatRoom(id){
+  const idx=openChatIds.indexOf(id);
+  if(idx>=0){openChatIds.splice(idx,1);renderSidebarChatRooms();renderChatDrawers();}
+}
+function renderChatDrawers(){
+  const cont=document.getElementById('chat-drawer-container');if(!cont)return;
+  cont.innerHTML=openChatIds.map((id,slot)=>{
+    const c=findChatRoom(id);if(!c)return '';
+    return `<div class="chat-drawer open" data-slot="${slot}" data-cid="${id}">
+      <div class="chat-drawer-head" style="background:linear-gradient(135deg,${c.color},#6366f1)">
+        <span style="font-size:16px">${c.icon}</span>
+        <span>${escHtml(c.name)}</span>
+        <span style="font-size:10px;opacity:.8;margin-left:8px">ห้อง ${slot+1}/${MAX_CHAT_ROOMS}</span>
+        <button class="cd-close" onclick="closeChatRoom('${id}')">×</button>
+      </div>
+      <div class="chat-drawer-body" id="chat-msgs-${id}"></div>
+      <div class="chat-drawer-inarea">
+        <div class="cd-sticker-pan" id="cd-sticker-pan-${id}"><div class="cd-sticker-grid" id="cd-sticker-grid-${id}"></div></div>
+        <div class="cd-att-preview" id="cd-att-preview-${id}" style="display:none"></div>
+        <div class="cd-irow">
+          <div class="cd-att-row">
+            <button class="cd-att-btn" id="cd-btn-sticker-${id}" onclick="toggleCDSticker('${id}')" title="สติกเกอร์">😊</button>
+            <button class="cd-att-btn img" onclick="document.getElementById('cd-img-input-${id}').click()" title="อัพโหลดรูปภาพ" aria-label="อัพโหลดรูปภาพ">📷</button>
+            <button class="cd-att-btn chat-voice-btn" id="voice-btn-cd-${id}" onclick="toggleChatVoice('chat_room','${id}')" title="ส่งเสียงพูด" aria-label="ส่งเสียงพูด">🎙️</button>
+            <input type="file" id="cd-img-input-${id}" accept="image/*" style="display:none" onchange="handleCDImage(this,'${id}')"/>
+          </div>
+          <textarea class="min" id="cd-text-${id}" rows="1" placeholder="พิมพ์ข้อความ..." onkeydown="cdKey(event,'${id}')"></textarea>
+          <button class="cd-send" onclick="cdSend('${id}')">➤</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  openChatIds.forEach(id=>{buildCDStickerGrid(id);renderCDMessages(id);});
+}
+function buildCDStickerGrid(id){
+  const g=document.getElementById('cd-sticker-grid-'+id);if(!g||g.childElementCount)return;
+  let html='';
+  for(let i=0;i<STICKER_COUNT;i++){html+=`<button type="button" class="cd-sticker-opt" onclick="pickCDSticker(${i},'${id}')" style="background-position:${stickerBgPos(i)}" aria-label="สติกเกอร์ ${i+1}"></button>`;}
+  g.innerHTML=html;
+}
+function toggleCDSticker(id){
+  buildCDStickerGrid(id);
+  const p=document.getElementById('cd-sticker-pan-'+id);
+  const btn=document.getElementById('cd-btn-sticker-'+id);
+  if(!p||!btn)return;
+  const on=!p.classList.contains('open');
+  p.classList.toggle('open',on);btn.classList.toggle('active',on);
+}
+function pickCDSticker(i,id){
+  document.getElementById('cd-sticker-pan-'+id)?.classList.remove('open');
+  document.getElementById('cd-btn-sticker-'+id)?.classList.remove('active');
+  cdPostMessage(id,{kind:'sticker',stickerId:i});
+}
+async function handleCDImage(input,id){
+  const c=findChatRoom(id);if(!c){input.value='';return;}
+  const f=input.files&&input.files[0];if(!f){return;}
+  try{
+    const d=await compressImage(f,1000,0.75);
+    cdPostMessage(id,{kind:'image',data:d,photo:d});
+  }catch(e){alert('ไม่สามารถใช้รูปนี้ได้: '+(e.message||e));}
+  finally{input.value='';}
+}
+function cdKey(e,id){
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();cdSend(id);}
+}
+function cdSend(id){
+  const ta=document.getElementById('cd-text-'+id);if(!ta)return;
+  const text=(ta.value||'').trim();
+  if(!text)return;
+  cdPostMessage(id,{kind:'text',text});
+  ta.value='';
+}
+function cdPostMessage(id,payload){
+  const c=findChatRoom(id);if(!c)return;
+  const msg=Object.assign({
+    id:'m_'+id+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+    ts:Date.now(),
+    senderEmail:profile.email||'',
+    ...chatIdentity(),
+    roomId:id
+  },payload);
+  c.messages.push(msg);
+  saveChatRoomMsgs(id);renderCDMessages(id);
+  syncChatMessage('chat_room',msg,id,c.name||'ห้องแชท');
+  try{archiveChatMessage('chat_room:'+id,msg);}catch(e){}try{notifyChatOthers(c.name||'ห้องแชท',msg);}catch(e){}
+}
+
+function saveChatRoomMsgs(id){
+  const c=findChatRoom(id);if(!c)return;
+  if(c.messages.length>300)c.messages=c.messages.slice(-300);
+  saveChatRoomsList();
+}
+function renderCDMessages(id){
+  const c=findChatRoom(id);if(!c)return;
+  const box=document.getElementById('chat-msgs-'+id);if(!box)return;
+  if(!c.messages.length){
+    box.innerHTML='<div class="cd-empty"><div class="ei">💬</div><p>ยังไม่มีข้อความ<br/><small>พิมพ์ข้อความหรือส่งสติกเกอร์ด้านล่าง</small></p></div>';
+    return;
+  }
+  const me=(profile.name||'');
+  box.innerHTML=c.messages.map(m=>{
+    const isMe=(m.sender===me);
+    let body='';
+    if(m.kind==='sticker')body=`<div class="bl media"><div class="cd-sticker" style="background-position:${stickerBgPos(m.stickerId)}"></div></div>`;
+    else if(m.kind==='image')body=`<div class="bl media"><img class="cd-image" src="${escAttr(m.data)}" onclick="openLightbox(this.src)" alt=""/></div>`;
+    else if(m.kind==='voice'||m.audio)body=`<div class="bl"><audio class="chat-audio" controls preload="metadata" src="${escAttr(m.audio||'')}"></audio></div>`;
+    else body=`<div class="bl">${escHtml(m.text||'')}</div>`;
+    const tt=new Date(m.ts).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
+    return `<div class="cd-msg${isMe?' me':''}" onpointerdown="chatHoldStart(event,'chat_room','${escAttr(id)}','${escAttr(m.id||'')}')" onpointerup="chatHoldCancel()" onpointerleave="chatHoldCancel()" onpointercancel="chatHoldCancel()" oncontextmenu="event.preventDefault();openChatActions('chat_room','${escAttr(id)}','${escAttr(m.id||'')}',event.clientX,event.clientY)">
+      ${chatAvatarHtml(m,'av chat-avatar')}
+      <div class="mc">
+        ${isMe?'':`<div class="ms">${escHtml(m.sender||'')}</div>`}
+        ${body}
+        <div class="cd-mt">${tt}</div>
+      </div>
+    </div>`;
+  }).join('');
+  box.scrollTop=box.scrollHeight;
+}
+
+// ── Legacy single-drawer stubs kept so earlier callers don't break ──
+function toggleChatDrawer(){if(chatRoomsList[0])toggleChatRoom(chatRoomsList[0].id);else addChatRoom();}
+function closeChatDrawer(){openChatIds=[];renderChatDrawers();renderSidebarChatRooms();}
+
+// LOCAL ADMIN LOGIN
+function openAdminLogin(){
+  const inp=document.getElementById('admin-login-pass');
+  const err=document.getElementById('admin-login-err');
+  if(inp)inp.value='';
+  if(err)err.style.display='none';
+  document.getElementById('ov-admin-login').classList.add('open');
+  setTimeout(()=>inp&&inp.focus(),60);
+}
+function submitAdminLogin(){
+  const inp=document.getElementById('admin-login-pass');
+  const err=document.getElementById('admin-login-err');
+  if(!inp)return;
+  if(inp.value!==ADMIN_CODE){
+    if(err)err.style.display='block';
+    inp.value='';inp.focus();
+    return;
+  }
+  closeOv('ov-admin-login');
+  profile={name:'แอดมิน',email:MASTER_ADMIN_EMAIL,picture:'',color:'#ff7a00',google:false,localAdmin:true};
+  persistProfile();
+  setAdminUnlocked();
+  document.getElementById('setup').style.display='none';
+  showToast('เข้าสู่ระบบ','🔓 เข้าสู่ระบบแอดมินสำเร็จ');
+  try{auditAdd('login','เข้าสู่ระบบด้วยรหัสผู้ดูแล','admin local');}catch(e){}
+  recordLoginLocation({id4:'0001',nickname:'แอดมิน',realName:'Admin',level:5},'admin');
+  initApp();
+}
+
+// UTILS
+function fmt(n){return Number(n).toLocaleString('th-TH');}
+function escHtml(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br/>');}
+function escAttr(t){return String(t).replace(/"/g,'&quot;').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function fmtDate(d){
+  if(!d)return'วันนี้';
+  const[y,m,day]=d.split('-');
+  return`${+day} ${['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'][+m-1]} ${+y+543}`;
+}
+function showToast(t,b){document.getElementById('ttt').textContent=t;document.getElementById('ttb').textContent=b;const el=document.getElementById('toast');el.classList.add('show');setTimeout(()=>el.classList.remove('show'),3500);}
+function closeOv(id){document.getElementById(id).classList.remove('open');}
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('ovmob').classList.toggle('open');}
+function closeSidebar(){document.getElementById('sidebar').classList.remove('open');document.getElementById('ovmob').classList.remove('open');}
+document.querySelectorAll('.ov').forEach(o=>o.addEventListener('click',function(e){if(e.target===this){this.classList.remove('open');if(this.id==='ov-admin'&&adminResolve){const r=adminResolve;adminResolve=null;r(false);}}}));
+// delegated listener สำหรับ overlay ที่สร้างทีหลัง (เช่น ov-cbox-cat)
+document.addEventListener('click',function(e){
+  const ov=e.target;
+  if(ov.classList&&ov.classList.contains('ov')&&e.target===ov){
+    ov.classList.remove('open');
+  }
+});
+
+// BOOT
+loadAll();
+buildSetupColors();
+updateAdminBadge();
+if(profile.name){document.getElementById('setup').style.display='none';initApp();}
+else{
+  startAppStateSync();
+  const autoEl=document.getElementById('s-autologin');
+  if(autoEl)autoEl.checked=localStorage.getItem('org_autologin')!=='0';
+}

@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"/>
+<meta name="theme-color" content="#1a1f2e"/>
+<title>แอปองค์กร</title>
+<link rel="manifest" href='data:application/manifest+json,{"name":"แอปส้มสด","short_name":"ส้มสด","start_url":".","display":"standalone","background_color":"#1a1f2e","theme_color":"#1a1f2e"}'>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- SETUP (NEW HERO LOGIN — ORANGE) -->
+<div id="setup" class="hero">
+  <div class="hero-card">
+    <div class="hero-top">
+      <div class="hero-emblem">🍊</div>
+      <div class="hero-title">แอปองค์กรส้มสด</div>
+      <div class="hero-sub">ห้องขาย · โรงงานน้ำส้ม · แอดมิน</div>
+    </div>
+    <div class="hero-body">
+      <div class="hero-label">เข้าสู่ระบบผู้ใช้ที่ได้รับการยืนยันแล้ว</div>
+      <button type="button" class="gbtn" id="member-login-btn" onclick="openMemberLogin()">
+        <span style="font-size:18px">🆔</span>
+        <span id="gbtn-label">เข้าสู่ระบบด้วย ID ผู้สมัคร</span>
+      </button>
+      <div class="gsi-hint">เฉพาะผู้สมัครที่แอดมินอนุมัติแล้วเท่านั้น · ระบบจะขอตำแหน่งปัจจุบันทุกครั้งที่ล็อกอิน</div>
+      <div class="hero-or">หรือ</div>
+      <button type="button" class="abtn" id="admin-login-btn" onclick="openAdminLogin()">
+        <span style="font-size:18px">🔒</span>
+        <span>Admin login</span>
+      </button>
+      <button type="button" class="abtn" id="register-btn" onclick="openRegister()" style="margin-top:8px;background:linear-gradient(135deg,#ff7a00,#ffb347);color:#fff;border:none">
+        <span style="font-size:18px">📝</span>
+        <span>ลงทะเบียนผู้ใช้ใหม่</span>
+      </button>
+      <div class="gsi-hint" style="margin-top:10px">ระบบจะตัดออกอัตโนมัติหลังครบ 24 ชั่วโมง และต้องล็อกอินใหม่ทุกวัน</div>
+    </div>
+    <div class="hero-foot">🍊 แอปส้มสด — จัดการร้านค้าครบวงจร</div>
+  </div>
+</div>
+
+<!-- VERIFIED MEMBER LOGIN POPUP -->
+<div class="ov" id="ov-member-login" style="z-index:1100">
+  <div class="modal" style="max-width:360px">
+    <h3>🆔 เข้าสู่ระบบผู้สมัครที่ยืนยันแล้ว</h3>
+    <div style="font-size:12px;color:var(--muted);margin:6px 0 10px;line-height:1.5">
+      ใส่ ID 4 หลักที่ได้รับหลังลงทะเบียน ระบบจะอนุญาตเฉพาะ ID ที่แอดมินอนุมัติแล้ว และจะส่งพิกัดปัจจุบันเมื่อเข้าสู่ระบบ
+    </div>
+    <label>ID ผู้สมัคร</label>
+    <input id="member-login-id" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="เช่น 1234" autocomplete="one-time-code" onkeydown="if(event.key==='Enter'){event.preventDefault();submitMemberLogin();}"/>
+    <div id="member-login-err" style="font-size:11px;color:var(--danger);margin-top:6px;display:none"></div>
+    <div class="mbtns">
+      <button class="mcan" onclick="closeOv('ov-member-login')">ยกเลิก</button>
+      <button class="mok" onclick="submitMemberLogin()">เข้าสู่ระบบ</button>
+    </div>
+  </div>
+</div>
+
+<!-- REGISTRATION MODAL (multi-step) -->
+<div class="ov" id="ov-register" style="z-index:1100">
+  <div class="modal" style="max-width:420px">
+    <h3 id="reg-step-title">📝 ลงทะเบียนผู้ใช้ใหม่ (1/5)</h3>
+    <div id="reg-progress" style="display:flex;gap:4px;margin-bottom:12px">
+      <span class="reg-pd active" data-s="1"></span><span class="reg-pd" data-s="2"></span>
+      <span class="reg-pd" data-s="3"></span><span class="reg-pd" data-s="4"></span>
+      <span class="reg-pd" data-s="5"></span>
+    </div>
+    <!-- Step 1: Real name -->
+    <div class="reg-step" data-step="1">
+      <label>ชื่อจริง</label><input id="reg-fname" placeholder="ชื่อ" maxlength="40"/>
+      <label>นามสกุลจริง</label><input id="reg-lname" placeholder="นามสกุล" maxlength="40"/>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px">*ข้อมูลจริง ใช้เพื่อการยืนยัน ID เท่านั้น</div>
+    </div>
+    <!-- Step 2: Nickname -->
+    <div class="reg-step" data-step="2" style="display:none">
+      <label>ชื่อเล่น / ฉายา</label>
+      <input id="reg-nick" placeholder="ชื่อที่จะแสดงในแอฟ" maxlength="30"/>
+      <div style="font-size:11px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px;margin-top:10px;line-height:1.5">
+        ℹ️ ชื่อนี้จะโชว์เป็นโปรไฟล์ในแอฟ<br/>
+        <b>เปลี่ยนชื่อเล่น/ฉายา ติดต่อแอดมิน</b>
+      </div>
+    </div>
+    <!-- Step 3: Avatar -->
+    <div class="reg-step" data-step="3" style="display:none">
+      <label>เลือกไอคอนโปรไฟล์</label>
+      <div id="reg-avatar-grid" style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:4px"></div>
+      <div style="font-size:11px;color:var(--muted);margin:10px 0 4px;text-align:center">หรือ</div>
+      <div style="display:flex;gap:6px">
+        <input type="file" id="reg-photo-cam" accept="image/*" capture="user" style="display:none" onchange="regHandlePhoto(this)"/>
+        <input type="file" id="reg-photo-file" accept="image/*" style="display:none" onchange="regHandlePhoto(this)"/>
+        <button type="button" class="photo-btn" onclick="document.getElementById('reg-photo-cam').click()" style="flex:1">📷 ถ่ายรูป</button>
+        <button type="button" class="photo-btn" onclick="document.getElementById('reg-photo-file').click()" style="flex:1">🖼 อัพโหลด</button>
+      </div>
+      <div id="reg-avatar-preview" style="display:flex;justify-content:center;margin-top:10px"></div>
+    </div>
+    <!-- Step 4: Face verification (selfie) -->
+    <div class="reg-step" data-step="4" style="display:none">
+      <label>ยืนยันใบหน้า (เซลฟี่)</label>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">ถ่ายภาพเซลฟี่เพื่อยืนยันตัวตน</div>
+      <input type="file" id="reg-selfie-cam" accept="image/*" capture="user" style="display:none" onchange="regHandleSelfie(this)"/>
+      <button type="button" class="photo-btn" onclick="document.getElementById('reg-selfie-cam').click()" style="width:100%;padding:14px;background:var(--accent);color:#fff;font-weight:700;border:none">📸 กดเรียกกล้องหน้าเพื่อถ่ายเซลฟี่</button>
+      <div id="reg-selfie-preview" style="display:flex;justify-content:center;margin-top:10px"></div>
+    </div>
+    <!-- Step 5: Confirm -->
+    <div class="reg-step" data-step="5" style="display:none">
+      <div id="reg-summary" style="font-size:12px;color:var(--text);background:#f9fafb;border:1px solid var(--border);border-radius:8px;padding:10px 12px;line-height:1.8"></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5">เมื่อกด "ยืนยัน" ข้อมูลจะถูกส่งให้แอดมินตรวจสอบ<br/>กรุณารอการอนุมัติก่อนเข้าใช้งาน</div>
+    </div>
+    <div class="mbtns">
+      <button class="mcan" id="reg-back-btn" onclick="regStep(-1)" style="display:none">← ก่อนหน้า</button>
+      <button class="mcan" onclick="closeOv('ov-register')">ยกเลิก</button>
+      <button class="mok" id="reg-next-btn" onclick="regStep(1)">ถัดไป →</button>
+    </div>
+  </div>
+</div>
+
+<!-- REGISTRATION PENDING POPUP -->
+<div class="ov" id="ov-reg-pending" style="z-index:1200">
+  <div class="modal" style="text-align:center;max-width:320px">
+    <div style="font-size:44px;margin-bottom:6px">⏳</div>
+    <h3 style="text-align:center">ส่งข้อมูลการลงทะเบียนแล้ว</h3>
+    <div style="font-size:13px;color:var(--text);margin:8px 0 6px">กรุณารอการยืนยันจากแอดมิน</div>
+    <div id="reg-pending-id" style="font-size:12px;color:var(--accent);font-weight:700;margin:6px 0"></div>
+    <div class="mbtns" style="justify-content:center">
+      <button class="mok" onclick="closeOv('ov-reg-pending')">ตกลง</button>
+    </div>
+  </div>
+</div>
+
+<!-- USER DETAIL (Admin) MODAL -->
+<div class="ov" id="ov-user-detail">
+  <div class="modal" style="max-width:480px">
+    <h3 id="ud-title">รายละเอียด ID</h3>
+    <div id="ud-body" style="font-size:12px;line-height:1.7"></div>
+    <div class="mbtns">
+      <button class="mcan" onclick="closeOv('ov-user-detail')">ปิด</button>
+    </div>
+  </div>
+</div>
+
+<!-- CHAT ARCHIVE MODAL (admin, SS1234) -->
+<div class="ov" id="ov-chat-archive">
+  <div class="modal" style="max-width:560px">
+    <h3>🗂️ ประวัติแชททั้งหมด</h3>
+    <div id="ar-gate" style="text-align:center;padding:20px 0">
+      <div style="font-size:36px">🔒</div>
+      <div style="font-size:12px;color:var(--muted);margin:8px 0">ต้องใส่รหัสเพื่อดูประวัติแชทจากทุกห้อง</div>
+      <input id="ar-pass" type="password" placeholder="รหัส" style="max-width:220px;text-align:center;margin:0 auto;display:block" onkeydown="if(event.key==='Enter'){event.preventDefault();archiveUnlock();}"/>
+      <button class="mok" onclick="archiveUnlock()" style="margin-top:10px">🔓 ปลดล็อค</button>
+      <div id="ar-err" style="color:var(--danger);font-size:11px;margin-top:8px;display:none">รหัสไม่ถูกต้อง</div>
+    </div>
+    <div id="ar-body" style="display:none;max-height:52vh;overflow-y:auto;font-size:12px"></div>
+    <div class="mbtns">
+      <button class="mcan" onclick="closeOv('ov-chat-archive')">ปิด</button>
+    </div>
+  </div>
+</div>
+
+<div class="ov" id="ov-admin-login" style="z-index:1100">
+  <div class="modal">
+    <h3>🔒 Admin login</h3>
+    <div style="font-size:12px;color:var(--muted);margin:6px 0 10px">เข้าสู่ระบบด้วยรหัสผ่านผู้ดูแล (ไม่ต้องใช้บัญชีภายนอก)</div>
+    <label>รหัสผ่านแอดมิน</label>
+    <input id="admin-login-pass" type="password" placeholder="รหัสผ่าน" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();submitAdminLogin();}"/>
+    <div id="admin-login-err" style="font-size:11px;color:var(--danger);margin-top:6px;display:none">❌ รหัสไม่ถูกต้อง</div>
+    <div class="mbtns">
+      <button class="mcan" onclick="closeOv('ov-admin-login')">ยกเลิก</button>
+      <button class="mok" onclick="submitAdminLogin()">เข้าสู่ระบบ</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADMIN AUTH MODAL -->
+<div class="ov" id="ov-admin">
+  <div class="modal">
+    <h3>🔒 ยืนยันสิทธิ์แอดมิน</h3>
+    <div id="admin-msg" style="font-size:12px;color:var(--muted);margin:6px 0 10px"></div>
+    <label>กรุณาใส่รหัสแอดมินเพื่อดำเนินการต่อ</label>
+    <input id="admin-pass" type="password" placeholder="รหัสแอดมิน" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();submitAdmin();}"/>
+    <div id="admin-err" style="font-size:11px;color:var(--danger);margin-top:6px;display:none">❌ รหัสไม่ถูกต้อง</div>
+    <div class="mbtns">
+      <button class="mcan" onclick="cancelAdmin()">ยกเลิก</button>
+      <button class="mok" onclick="submitAdmin()">ยืนยัน</button>
+    </div>
+  </div>
+</div>
+
+<!-- ovmob and toast follow below -->
+
+<!-- ADD / EDIT ROOM MODAL -->
+<div class="ov" id="ov-room">
+  <div class="modal">
+    <h3 id="ov-room-title">➕ สร้างห้องขายใหม่</h3>
+    <input type="hidden" id="m-rid"/>
+    <input type="hidden" id="m-rparent"/>
+    <input type="hidden" id="m-rmode" value="room"/>
+    <input type="hidden" id="m-rlevel" value=""/>
+    <label>ชื่อห้อง / หมวดหมู่</label><input id="m-rname" placeholder="ชื่อห้อง เช่น ร้านพี่ตุ้ย" maxlength="40"/>
+    <label>ไอคอน</label><div class="eg" id="m-emojis"></div>
+    <label>สี</label><div class="cdots" id="m-colors"></div>
+    <div id="m-cust-fields">
+      <label style="margin-top:12px;font-weight:700;color:var(--text)">👤 ข้อมูลลูกค้า (สำหรับห้องขาย)</label>
+      <div class="cust-grid">
+        <div><label>ชื่อลูกค้า</label><input id="m-cu-name" placeholder="ชื่อ-นามสกุล"/></div>
+        <div><label>เบอร์โทร</label><input id="m-cu-phone" placeholder="08x-xxx-xxxx"/></div>
+        <div class="fg-full"><label>ที่อยู่</label><input id="m-cu-address" placeholder="ที่อยู่จัดส่ง"/></div>
+        <div><label>บริษัท</label><input id="m-cu-company" placeholder="ชื่อบริษัท (ถ้ามี)"/></div>
+        <div><label>สาขา</label><input id="m-cu-branch" placeholder="สาขา (ถ้ามี)"/></div>
+      </div>
+    </div>
+    <div class="mbtns">
+      <button class="mcan" onclick="closeOv('ov-room')">ยกเลิก</button>
+      <button class="mok" onclick="doSaveRoom()">บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADMIN ROLE MODAL -->
+<div class="ov" id="ov-role">
+  <div class="modal">
+    <h3 id="ov-role-title">➕ เพิ่มตำแหน่งใหม่</h3>
+    <input type="hidden" id="m-role-id"/>
+    <label>ชื่อตำแหน่ง</label><input id="m-role-name" placeholder="เช่น ผู้จัดการ, พนักงานขาย, ส่งของ" maxlength="30"/>
+    <label style="margin-top:10px">สิทธิ์การใช้งาน</label>
+    <div class="perm-grid" id="m-role-perms"></div>
+    <div class="mbtns">
+      <button class="mcan" onclick="closeOv('ov-role')">ยกเลิก</button>
+      <button class="mok" onclick="doSaveRole()">บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADMIN ASSIGN USER MODAL -->
+<div class="ov" id="ov-user-role">
+  <div class="modal">
+    <h3>👤 กำหนดตำแหน่งให้ผู้ใช้</h3>
+    <label>อีเมล (Gmail) ของผู้ใช้</label>
+    <input id="m-ur-email" placeholder="user@gmail.com"/>
+    <label>ตำแหน่ง</label>
+    <select id="m-ur-role" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:8px 11px;font-size:12px"></select>
+    <div class="mbtns">
+      <button class="mcan" onclick="closeOv('ov-user-role')">ยกเลิก</button>
+      <button class="mok" onclick="doSaveUserRole()">บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<!-- MULTI-PRODUCT SALE PICKER -->
+<div class="ov" id="ov-sale-add">
+  <div class="modal">
+    <h3 id="sale-add-title">➕ เพิ่มสินค้า (รายรับ)</h3>
+    <label>หมวดหมู่ + สินค้า</label>
+    <div class="cbox cbox-block" id="sa-cbox"></div>
+    <input type="hidden" id="sa-cat"/>
+    <input type="hidden" id="sa-item"/>
+    <input id="sa-custom" placeholder="ชื่อสินค้า (พิมพ์เอง)" style="display:none;margin-top:6px" oninput="updateSaMlVisibility()"/>
+    <div class="cust-grid" style="margin-top:8px">
+      <div><label>จำนวน</label><input id="sa-qty" type="number" min="0" step="any" oninput="calcSaleAddTotal()"/></div>
+      <div><label>หน่วย</label><input id="sa-unit" list="dl-units"/></div>
+      <div><label>ราคา/หน่วย</label><input id="sa-price" type="number" min="0" step="any" oninput="calcSaleAddTotal()"/></div>
+      <div><label>รวม</label><input id="sa-total" readonly style="background:#f9fafb"/></div>
+    </div>
+    <div id="sa-ml-wrap" style="display:none;margin-top:8px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px 10px">
+      <label style="font-size:11px;color:#7c2d12;font-weight:700">🧪 ปริมาณน้ำส้มStock (ml) — จะหักจากถังสต๊อกน้ำส้มอัตโนมัติ</label>
+      <input id="sa-ml" type="number" min="0" step="any" placeholder="เช่น 220"/>
+      <div style="font-size:10px;color:#9a3412;margin-top:4px">ใส่ปริมาณน้ำส้ม (ml) ที่ใช้ในรายการนี้ ระบบจะหักออกจากถังสต๊อกน้ำส้มทันทีเมื่อบันทึกการขาย</div>
+    </div>
+    <div class="mbtns">
+      <button class="mcan" onclick="closeOv('ov-sale-add')">ยกเลิก</button>
+      <button class="mok" onclick="doAddSaleItem()">เพิ่มเข้ารายการ</button>
+    </div>
+  </div>
+</div>
+
+<div class="ovmob" id="ovmob" onclick="closeSidebar()"></div>
+<div class="toast" id="toast"><div class="ttt" id="ttt"></div><div id="ttb"></div></div>
+<input type="file" id="import-file" accept=".json,.csv,.xlsx,.xls" style="display:none" onchange="importFile(event)" multiple/>
+<input type="file" id="doc-import-file" accept=".json,.csv,.xlsx,.xls,.pdf,image/*" style="display:none" onchange="handleDocImport(event)" multiple/>
+<div class="lightbox" id="lightbox" onclick="closeLightbox()"><img id="lightbox-img" alt="รูปภาพสินค้า"/></div>
+
+<!-- DATA EXCHANGE MODAL -->
+<div class="ov" id="ov-docs">
+  <div class="modal" style="max-width:520px">
+    <h3>ส่งออก / นำเข้า เอกสาร</h3>
+    <div class="ai-status" id="doc-scope-label">ข้อมูลของหน้าปัจจุบัน</div>
+    <div class="doc-grid" style="margin-top:12px">
+      <button type="button" onclick="exportAppJSON()">สำรองข้อมูล JSON<br><small>เก็บข้อมูลแอปครบชุด</small></button>
+      <button type="button" onclick="exportAppXLSX()">ส่งออก Spreadsheet<br><small>ไฟล์ .xlsx หลายชีต</small></button>
+      <button type="button" onclick="exportAppCSV()">ส่งออก CSV<br><small>ตารางของหน้าปัจจุบัน</small></button>
+      <button type="button" onclick="exportAppPDF()">ส่งออก PDF<br><small>เปิดหน้าพิมพ์/บันทึก PDF</small></button>
+      <button type="button" onclick="document.getElementById('doc-import-file').click()">นำเข้าไฟล์<br><small>JSON, CSV, XLSX, PDF, รูปบิล</small></button>
+      <button type="button" onclick="openSheetsMain()">Google Sheets<br><small>เปิดหรือเชื่อมต่อสเปรดชีต</small></button>
+    </div>
+    <div class="ai-status" id="doc-import-status"></div>
+    <div class="mbtns">
+      <button class="mcan" onclick="closeOv('ov-docs')">ปิด</button>
+    </div>
+  </div>
+</div>
+
+<!-- GOOGLE SHEETS SETUP MODAL -->
+<div class="ov" id="ov-sheets">
+  <div class="modal gs-modal">
+    <h3>📊 เชื่อมต่อ Google Sheets (สร้างชีทใหม่อัตโนมัติ)</h3>
+    <div class="gs-steps">
+      <ol>
+        <li>เปิด <code>script.google.com</code> → <b>New project</b></li>
+        <li>ลบโค้ดเดิม แล้ว <b>วางโค้ดด้านล่างนี้ → บันทึก</b></li>
+        <li>กด <b>Deploy → New deployment → Web app</b><br>
+          <code>Execute as: Me</code> · <code>Who has access: Anyone</code></li>
+        <li>กด <b>Authorize</b> → ยอมรับสิทธิ์ (เพื่อให้สคริปต์สร้างชีทได้)</li>
+        <li>คัดลอก <b>Web app URL</b> แล้ววางช่องด้านล่าง → <b>บันทึก</b></li>
+      </ol>
+    </div>
+    <div class="gs-code" id="gs-code-box"></div>
+    <div class="gs-actions">
+      <button class="gs-btn" onclick="copyAppsScript()">📋 คัดลอกโค้ด</button>
+      <button class="gs-btn" onclick="window.open('https://docs.google.com/spreadsheets/d/1ixalsENDrtiMr5m2lph0XnvShGE5YHt1EtIZGZZ_WZk','_blank')">🚀 เปิด Apps Script</button>
+    </div>
+    <label style="margin-top:14px">Web app URL ที่คัดลอกมา</label>
+    <input id="gs-url" placeholder="https://script.google.com/macros/s/..../exec"/>
+    <button class="gs-open-btn" id="gs-open-btn" onclick="openActualSheet()">🔗 เปิด Google Sheets ของฉัน</button>
+    <div class="mbtns">
+      <button class="mcan" onclick="closeOv('ov-sheets')">ปิด</button>
+      <button class="mok" onclick="saveSheetsUrl()">💾 บันทึก + ทดสอบ</button>
+    </div>
+  </div>
+</div>
+
+<!-- STOCK IN/OUT MODAL -->
+<div class="ov" id="ov-move">
+  <div class="modal">
+    <h3 id="move-title">รับเข้าสต๊อก</h3>
+    <div id="move-item-name" style="font-size:13px;font-weight:600;margin-bottom:8px"></div>
+    <label>จำนวน</label>
+    <div style="display:flex;gap:6px">
+      <input id="move-qty" type="number" min="0" step="any" style="flex:1"/>
+      <select id="move-unit" style="flex:0 0 110px;border:1px solid var(--border);border-radius:7px;padding:8px;font-size:12px"></select>
+    </div>
+    <div id="move-unit-hint" style="font-size:10px;color:#b45309;margin-top:4px"></div>
+    <label>ราคา/ต้นทุน รวม (ตามจำนวนที่ซื้อ)</label><input id="move-price" type="number" min="0" step="any"/>
+    <label>หมายเหตุ</label><input id="move-note" placeholder="เช่น ซื้อจากตลาด, ขายให้รถบอม"/>
+    <label id="move-photo-label">รูปภาพ (ไม่บังคับ)</label>
+    <div class="photo-pick">
+      <img id="mv-thumb-img" class="photo-thumb" style="display:none" onclick="openLightbox(this.src)"/>
+      <div id="mv-thumb-empty" class="photo-thumb empty">📷</div>
+      <div class="photo-actions">
+        <input type="file" id="mv-photo-cam" accept="image/*" capture="environment" style="display:none" onchange="handleMovePhoto(this)"/>
+        <input type="file" id="mv-photo-file" accept="image/*" style="display:none" onchange="handleMovePhoto(this)"/>
+        <button type="button" class="photo-btn" onclick="document.getElementById('mv-photo-cam').click()">📷 ถ่ายรูป</button>
+        <button type="button" class="photo-btn" onclick="document.getElementById('mv-photo-file').click()">🖼 เลือกจากคลังภาพ</button>
+        <button type="button" class="photo-btn danger" id="mv-photo-clear" style="display:none" onclick="clearMovePhoto()">× ลบรูป</button>
+      </div>
+    </div>
+    <div class="photo-hint" id="mv-photo-hint"></div>
+    <div class="mbtns">
+      <button class="mcan" onclick="closeOv('ov-move')">ยกเลิก</button>
+      <button class="mok" onclick="doMove()">บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD / EDIT PRODUCT MODAL -->
+<div class="ov" id="ov-prod">
+  <div class="modal">
+    <h3 id="prod-modal-title">➕ เพิ่มสินค้า/รายการใหม่</h3>
+    <label>หมวดหมู่</label>
+    <select id="p-cat" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:8px 11px;font-size:12px" onchange="updatePJuiceVisibility()"></select>
+    <label>ชื่อรายการ</label><input id="p-name" placeholder="เช่น ส้มสายน้ำผึ้ง พิเศษ"/>
+    <div id="p-juice-wrap" style="display:none;margin:6px 0 2px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px 10px">
+      <div style="font-size:11px;color:#7c2d12;font-weight:700;margin-bottom:5px">🍊 หน่วยบรรจุน้ำส้ม</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">
+        <div>
+          <label style="font-size:10px">หน่วย</label>
+          <select id="p-juice-unit" style="width:100%;border:1px solid #fed7aa;border-radius:7px;padding:8px 10px;font-size:13px;background:#fff">
+            <option value="ขวด">ขวด</option>
+            <option value="แพ็ค">แพ็ค</option>
+            <option value="กล่อง">กล่อง</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10px">ปริมาตรต่อขวด (ml)</label>
+          <input id="p-juice-ml" type="number" min="0" step="any" placeholder="เช่น 220"/>
+        </div>
+      </div>
+      <div style="font-size:10px;color:#9a3412;margin-top:4px">เลือกหน่วยบรรจุและระบุปริมาตรต่อขวด (ml) ระบบจะใช้ค่านี้ในการคำนวณสต๊อกน้ำส้ม</div>
+    </div>
+    <label id="p-unit-label">หน่วยย่อย (ฐาน — ใช้คิดคงเหลือ)</label><input id="p-unit" placeholder="เช่น ซอง / ขวด / กก"/>
+    <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px 10px;margin:6px 0 2px">
+      <div style="font-size:11px;color:#7c2d12;font-weight:700;margin-bottom:5px">📦 ซื้อเป็นแพ็ค/กล่อง แต่ใช้ทีละหน่วยย่อย?</div>
+      <div style="display:grid;grid-template-columns:1.1fr .9fr;gap:7px">
+        <div>
+          <label style="font-size:10px">ชื่อหน่วยแพ็ค (เช่น กล่อง / แพ็ค)</label>
+          <input id="p-pack-unit" placeholder="กล่อง"/>
+        </div>
+        <div>
+          <label style="font-size:10px">1 แพ็ค มีกี่หน่วยย่อย</label>
+          <input id="p-pack-size" type="number" min="0" step="any" placeholder="90"/>
+        </div>
+      </div>
+      <div style="font-size:10px;color:#9a3412;margin-top:4px">ตัวอย่าง: หน่วยย่อย = <b>ซอง</b>, หน่วยแพ็ค = <b>กล่อง</b>, 1 กล่อง = <b>90</b> ซอง — ซื้อ 1 กล่อง จะเพิ่มสต๊อก 90 ซองอัตโนมัติ</div>
+    </div>
+    <label>ราคา/ต้นทุน ต่อหน่วยย่อย</label><input id="p-price" type="number" min="0" step="any"/>
+    <label>จุดสั่งซื้อ (แจ้งเตือนเมื่อคงเหลือต่ำกว่า — นับเป็นหน่วยย่อย)</label><input id="p-reorder" type="number" min="0" step="any"/>
+    <label id="p-stock-label" style="display:none">คงเหลือ (แก้ไขยอดได้)</label>
+    <input id="p-stock" type="number" step="any" style="display:none"/>
+    <label>รูปภาพสินค้า (ไม่บังคับ)</label>
+    <div class="photo-pick">
+      <img id="p-thumb-img" class="photo-thumb" style="display:none" onclick="openLightbox(this.src)"/>
+      <div id="p-thumb-empty" class="photo-thumb empty">📷</div>
+      <div class="photo-actions">
+        <input type="file" id="p-photo-cam" accept="image/*" capture="environment" style="display:none" onchange="handleProductPhoto(this)"/>
+        <input type="file" id="p-photo-file" accept="image/*" style="display:none" onchange="handleProductPhoto(this)"/>
+        <button type="button" class="photo-btn" onclick="document.getElementById('p-photo-cam').click()">📷 ถ่ายรูป</button>
+        <button type="button" class="photo-btn" onclick="document.getElementById('p-photo-file').click()">🖼 เลือกจากคลังภาพ</button>
+        <button type="button" class="photo-btn danger" id="p-photo-clear" style="display:none" onclick="clearProductPhoto()">× ลบรูป</button>
+      </div>
+    </div>
+    <div class="mbtns">
+      <button class="mcan" onclick="closeOv('ov-prod')">ยกเลิก</button>
+      <button class="mok" id="prod-save-btn" onclick="doSaveProduct()">เพิ่ม</button>
+    </div>
+  </div>
+</div>
+
+<!-- CATEGORY MANAGER MODAL -->
+<div class="ov" id="ov-cats">
+  <div class="modal">
+    <h3>🗂️ จัดการหมวดหมู่</h3>
+    <div class="cat-mgr-hint">แตะเพื่อแก้ไขชื่อหรือไอคอน (อีโมจิ) · เปลี่ยนแปลงจะถูกบันทึกอัตโนมัติ</div>
+    <div id="cat-list" class="cat-mgr-list"></div>
+    <div class="divider"></div>
+    <div class="cat-mgr-add-title">+ เพิ่มหมวดหมู่ใหม่</div>
+    <div class="cat-mgr-add-row">
+      <input id="new-cat-icon" maxlength="4" placeholder="📦"/>
+      <input id="new-cat-name" placeholder="ชื่อหมวดหมู่ เช่น อุปกรณ์ทำความสะอาด"/>
+      <button class="mok" onclick="addCategory()">เพิ่ม</button>
+    </div>
+    <div class="mbtns">
+      <button class="mcan" onclick="resetCategoriesToDefault()" style="margin-right:auto">🔄 รีเซ็ตค่าเริ่มต้น</button>
+      <button class="mok" onclick="closeOv('ov-cats')">เสร็จสิ้น</button>
+    </div>
+  </div>
+</div>
+
+<!-- L2 PANEL (legacy popup — no longer used; L2 rooms are now full pages. Kept hidden for backwards compat) -->
+<div class="ov" id="ov-l2" style="display:none"></div>
+
+<!-- ── Product List: add/edit product modal ── -->
+<div class="ov" id="ov-pl-edit">
+  <div class="modal" style="max-width:480px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <h3 id="pl-edit-title" style="margin:0;flex:1">＋ เพิ่มสินค้า</h3>
+      <button onclick="closeOv('ov-pl-edit')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);line-height:1">×</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="fac-fld"><label>ประเภท</label>
+        <select id="pl-e-kind">
+          <option value="liquid">💧 ของเหลว (มี ml)</option>
+          <option value="count">🔢 นับชิ้น</option>
+        </select>
+      </div>
+      <div class="fac-fld"><label>ชื่อสินค้า</label><input type="text" id="pl-e-name" placeholder="เช่น น้ำส้ม 220 ml"></div>
+      <div class="fac-grid">
+        <div class="fac-fld"><label>หน่วยฐาน</label><input type="text" id="pl-e-base-unit" placeholder="เช่น ขวด, ชิ้น"></div>
+        <div class="fac-fld" id="pl-e-baseml-wrap"><label>ml ต่อหน่วยฐาน</label><input type="number" id="pl-e-baseml" min="0" step="any"></div>
+        <div class="fac-fld"><label>ราคาต่อหน่วยฐาน (บาท)</label><input type="number" id="pl-e-baseprice" min="0" step="any"></div>
+      </div>
+      <div class="fac-fld">
+        <label style="display:flex;align-items:center;gap:8px;justify-content:space-between">
+          <span>หมวดหมู่สินค้า</span>
+          <button type="button" onclick="pcOpenManager()" style="background:#fff;border:1px solid #0ea5e9;color:#0ea5e9;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">⚙️ จัดการหมวดหมู่</button>
+        </label>
+        <div id="pl-e-cats" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1px solid var(--border);border-radius:7px;background:#f8fafc;min-height:38px"></div>
+        <small style="color:var(--muted);font-size:11px">เลือกได้หลายหมวด · กำหนดว่าจะโชว์ในห้องไหนตามค่าที่ตั้งไว้ของหมวด</small>
+      </div>
+      <div class="fac-fld">
+        <label>ห้องที่มองเห็นเพิ่มเติม <small style="color:var(--muted);font-weight:500">(ทับการตั้งค่าหมวดหมู่)</small></label>
+        <div id="pl-e-rooms" style="display:flex;flex-direction:column;gap:5px;padding:8px;border:1px solid var(--border);border-radius:7px;background:#f8fafc"></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+        <button class="fac-btn sec" onclick="closeOv('ov-pl-edit')">ยกเลิก</button>
+        <button class="fac-btn" style="background:#0ea5e9" onclick="plSavePopup()">💾 บันทึก</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Product Categories manager modal ── -->
+<div class="ov" id="ov-pc">
+  <div class="modal" style="max-width:520px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <h3 style="margin:0;flex:1">🗂️ จัดการหมวดหมู่สินค้า</h3>
+      <button onclick="closeOv('ov-pc')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);line-height:1">×</button>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">กำหนดได้ว่าแต่ละหมวดจะโชว์ในห้องไหน · เปลี่ยนแปลงทันทีทุกห้อง</div>
+    <div id="pc-list" style="display:flex;flex-direction:column;gap:8px;max-height:55vh;overflow-y:auto;padding:4px"></div>
+    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+      <div style="font-weight:700;margin-bottom:6px;font-size:13px">＋ เพิ่มหมวดหมู่ใหม่</div>
+      <div style="display:flex;gap:6px">
+        <input id="pc-new-icon" maxlength="4" placeholder="📦" style="width:50px;padding:7px;border:1px solid var(--border);border-radius:7px;text-align:center"/>
+        <input id="pc-new-name" placeholder="ชื่อหมวดหมู่" style="flex:1;padding:7px 9px;border:1px solid var(--border);border-radius:7px"/>
+        <button class="fac-btn" style="margin:0;background:#0ea5e9" onclick="pcAdd()">เพิ่ม</button>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:10px">
+      <button class="fac-btn sec" onclick="closeOv('ov-pc')">เสร็จสิ้น</button>
+    </div>
+  </div>
+</div>
+
+<div class="shell">
+  <!-- SIDEBAR -->
+  <div class="sidebar" id="sidebar">
+    <div class="sb-head">
+      <div class="sb-logo">🏪 แอปองค์กร</div>
+      <div class="sb-sub" id="fbstat">ออฟไลน์</div>
+      <div class="mycard" onclick="openProfileEdit()">
+        <div class="av" id="myav"></div>
+        <div><div class="my-name" id="myn"></div><div class="my-role">แก้ไขโปรไฟล์</div></div>
+        <div class="odot"></div>
+      </div>
+    </div>
+
+    <!-- APP SWITCHER -->
+    <div class="app-switch">
+      <span id="chat-unread-badge" style="display:none">0</span>
+      <button class="asw-btn" id="sw-factory" onclick="switchApp('factory')">
+        <span class="asw-icon">🏭</span><span class="asw-label">โรงงานน้ำส้ม</span>
+        <span class="asw-badge" id="factory-alert-badge" style="display:none;background:var(--danger)">0</span>
+      </button>
+      <button class="asw-btn" id="sw-products" onclick="switchApp('products')">
+        <span class="asw-icon">📋</span><span class="asw-label">รายการสินค้า</span>
+      </button>
+      <button class="asw-btn" id="sw-inventory" onclick="switchApp('inventory')">
+        <span class="asw-icon">📦</span><span class="asw-label">คลังสินค้า</span>
+        <span class="asw-badge" id="low-stock-badge" style="display:none;background:var(--danger)">0</span>
+      </button>
+
+      <button class="asw-btn" id="sw-ai" onclick="switchApp('ai')">
+        <span class="asw-icon">🤖</span><span class="asw-label">แชท AI</span>
+      </button>
+      <button class="asw-btn" id="sw-camera" onclick="switchApp('camera')">
+        <span class="asw-icon">📷</span><span class="asw-label">กล้อง AI</span>
+      </button>
+
+      <button class="asw-btn" id="sw-finance" onclick="switchApp('finance')">
+        <span class="asw-icon">💰</span><span class="asw-label">รายรับ-รายจ่าย</span>
+      </button>
+      <button class="asw-btn" id="sw-admin" onclick="switchApp('admin')" style="position:relative">
+        <span class="asw-icon">⚙</span><span class="asw-label">แอดมิน</span>
+        <span id="admin-badge" class="admin-mini-badge" style="display:none" title="สิทธิ์แอดมินกำลังปลดล็อค"></span>
+      </button>
+    </div>
+
+    <!-- ROOM LIST (shown from app start — not gated behind cart) -->
+    <div class="room-section show" id="room-section">
+      <div class="rlbl">
+        <span>🗂 ห้องประชุม / ห้องขาย</span>
+        <button class="addbtn" onclick="openRoomPurposeSettings()" title="ตั้งค่าว่าชั้นไหนเป็นห้องอะไร">⚙</button>
+        <button class="addbtn" onclick="openAddCategory()" title="เพิ่มประเภทกลุ่มลูกค้า (ระดับบนสุด)">+</button>
+      </div>
+
+      <div id="rlist"></div>
+    </div>
+
+    <!-- CHAT TOGGLE (bottom zone of slide window) -->
+    <div class="sb-chat">
+      <div class="sb-chat-head">
+        <span style="font-size:14px">💬</span>
+        <span style="flex:1;font-size:11.5px;font-weight:700;color:#fff">ห้องแชท</span>
+        <button class="sb-chat-add" id="sb-chat-add" onclick="addChatRoom()" title="เพิ่มห้องแชท (สูงสุด 3 ห้อง)">+</button>
+      </div>
+      <div id="sb-chat-list" class="sb-chat-list"></div>
+    </div>
+
+    <div class="sb-foot">
+      <div class="ntrow" onclick="toggleNotify()">
+        <span style="font-size:14px">🔔</span>
+        <span class="ntxt">แจ้งเตือน</span>
+        <div class="sw" id="notifysw"></div>
+      </div>
+      <div class="ntrow ntrow-admin" onclick="lockAdminNow()" style="cursor:pointer;display:none">
+        <span style="font-size:14px">🔐</span>
+        <span class="ntxt" id="admin-lbl">สิทธิ์แอดมิน</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- ── SALES ROOM PAGE ── -->
+    <div class="page active" id="page-chat">
+      <div class="connbar" id="connbar">⏳ กำลังเชื่อมต่อข้อมูลกลาง...</div>
+      <div class="chat-header">
+        <button class="mbtn" onclick="toggleSidebar()" style="display:flex">☰</button>
+        <div class="ch-icon" id="ch-icon">🛒</div>
+        <div style="flex:1"><div class="ch-name" id="chn">เลือกห้องขาย</div><div class="ch-sub" id="chs">—</div></div>
+        <div class="ch-acts">
+          <button class="hbtn doc-btn light" onclick="openDataExchange('chat')">⇅ เอกสาร</button>
+          <button class="hbtn" onclick="openEditCurrentRoom()">✏️ แก้ไข</button>
+          <button class="hbtn" onclick="clearChat()">🗑️ ล้าง</button>
+        </div>
+      </div>
+      <div class="sales-body" id="msgs"><div class="chat-empty"><div class="ei">🛒</div><p>เลือกห้องขาย / กลุ่มลูกค้า</p></div></div>
+      <div class="inarea" id="inarea" style="display:none">
+        <div id="room-info" class="room-info-bar" style="display:none"></div>
+        <!-- แถบพับ: แสดงตลอด กดเพื่อเปิดฟอร์ม -->
+        <div class="sale-type-switch inarea-tab" id="inarea-tab">
+          <button type="button" class="sale-type-btn active-income" id="btn-type-income" onclick="setSaleTypeAndExpand('income')">🟢 รายรับ (ขาย)</button>
+          <button type="button" class="sale-type-btn" id="btn-type-expense" onclick="setSaleTypeAndExpand('expense')">🔴 ค่าใช้จ่าย</button>
+        </div>
+        <!-- ฟอร์มเต็ม: ซ่อน/แสดงได้ -->
+        <div class="inarea-body" id="inarea-body" style="display:none">
+          <div class="fg">
+            <label>วันที่</label>
+            <input type="date" id="sl-date"/>
+          </div>
+          <div class="expense-queue-hint" id="expense-hint">รายการนี้จะถูกบันทึกเป็นรายจ่าย · ถ้าสินค้ามีสต็อกจะตัดสต็อกด้วย</div>
+          <div class="pq-list" id="pq-list"></div>
+          <div class="pq-total" id="pq-total" style="display:none"><span>ยอดรวมทั้งหมด</span><span id="pq-total-val">฿0</span></div>
+          <button type="button" class="btn-add-product" id="btn-add-product" onclick="openSaleAdd()">+ เลือกสินค้า</button>
+          <div class="fg">
+            <label>หมายเหตุ (ไม่บังคับ)</label>
+            <input id="sl-note" placeholder="รายละเอียดการขาย"/>
+          </div>
+          <button class="btn-save-sale" id="btn-save-main" onclick="saveSaleOrExpense()">💾 บันทึก (ตัดสต๊อก + รายรับ)</button>
+          <button class="btn-save-withdraw" onclick="saveWithdraw()" title="เบิกสินค้าเป็นเครดิต 3 วัน">📝 เบิก (เครดิต 3 วัน · รอชำระ)</button>
+        </div>
+        <div class="statusbar"><div class="sdot" id="sdot"></div><span id="stxt">แจ้งเตือน: ปิด</span></div>
+      </div>
+    </div>
+
+    <!-- ── ADMIN PAGE ── -->
+    <div class="page" id="page-admin">
+      <div class="admin-header">
+        <button class="mbtn" onclick="toggleSidebar()">☰</button>
+        <span style="font-size:18px">⚙</span>
+        <div style="flex:1"><div class="fin-title">โหมดแอดมิน</div><div style="font-size:11px;color:var(--muted)" id="admin-who">—</div></div>
+        <button class="exp-btn" onclick="openDataExchange('admin')">⇅ เอกสาร</button>
+        <button class="exp-btn" onclick="lockAdminNow()">🔒 ล็อคสิทธิ์</button>
+      </div>
+      <div class="admin-body">
+        <div class="ad-hint" id="admin-hint">ผู้ดูแลหลัก (Master Admin): <b>kaveefruit.thailand@gmail.com</b> — การแก้ไขสิทธิ์ต้องใส่รหัสแอดมินทุกครั้ง และจะถูกบันทึกไว้ในประวัติ</div>
+        <div class="admin-tabs">
+          <button class="admin-tab active" onclick="switchAdminTab('roles',this)">ตำแหน่ง + สิทธิ์</button>
+          <button class="admin-tab" onclick="switchAdminTab('reg',this)">⏳ รออนุมัติ</button>
+          <button class="admin-tab" onclick="switchAdminTab('ids',this)">🆔 ผู้ใช้ทั้งหมด</button>
+          <button class="admin-tab" onclick="switchAdminTab('users',this)">ผู้ใช้ (สิทธิ์)</button>
+          <button class="admin-tab" onclick="switchAdminTab('rooms',this)">🏷️ ตั้งค่าห้อง</button>
+          <button class="admin-tab" onclick="switchAdminTab('archive',this)">🗂️ ประวัติแชท</button>
+          <button class="admin-tab" onclick="switchAdminTab('sheets',this)">📊 Google Sheets</button>
+          <button class="admin-tab" onclick="switchAdminTab('connect',this)">🔗 เชื่อมต่อ</button>
+          <button class="admin-tab" onclick="switchAdminTab('audit',this)">บันทึกการแก้ไข</button>
+        </div>
+        <div class="admin-section active" id="ad-roles">
+          <div class="ad-card">
+            <h4>📋 ตำแหน่งทั้งหมด <button class="exp-btn" onclick="openAddRole()" style="margin-left:auto;float:right">+ เพิ่มตำแหน่ง</button></h4>
+            <div id="role-list"></div>
+          </div>
+        </div>
+        <div class="admin-section" id="ad-users">
+          <div class="ad-card">
+            <h4>👥 การกำหนดตำแหน่งผู้ใช้ <button class="exp-btn" onclick="openAssignUser()" style="margin-left:auto;float:right">+ กำหนดตำแหน่ง</button></h4>
+            <div id="user-role-list"></div>
+          </div>
+        </div>
+        <div class="admin-section" id="ad-rooms">
+          <div class="ad-card">
+            <h4>🏷️ ตั้งค่าประเภทชั้นของห้อง</h4>
+            <div style="font-size:11px;color:var(--muted);line-height:1.55;margin-bottom:10px">กำหนดว่าห้องแต่ละชั้นใช้ทำอะไร ค่าเริ่มต้นคือชั้น 2 เป็นห้องประชุม และชั้น 3-4 เป็นห้องขาย</div>
+            <div id="room-purpose-list"></div>
+            <button class="btn-save" onclick="saveRoomPurposeSettings()">💾 บันทึกการตั้งค่าห้อง</button>
+          </div>
+        </div>
+        <div class="admin-section" id="ad-reg">
+          <div class="ad-card">
+            <h4>⏳ สมาชิกรออนุมัติ</h4>
+            <div id="reg-pending-list"></div>
+          </div>
+        </div>
+        <div class="admin-section" id="ad-ids">
+          <div class="ad-card">
+            <h4>🆔 ผู้ใช้ทั้งหมด (ID 4 หลัก)
+              <button class="exp-btn" onclick="openAddIdManually()" style="margin-left:auto;float:right">+ เพิ่ม ID</button>
+            </h4>
+            <div id="id-list"></div>
+          </div>
+        </div>
+        <div class="admin-section" id="ad-archive">
+          <div class="ad-card">
+            <h4>🗂️ ประวัติแชททั้งหมด (ต้องใส่รหัส)
+              <button class="exp-btn" onclick="openChatArchive()" style="margin-left:auto;float:right">🔓 เปิดดู</button>
+            </h4>
+            <div style="font-size:11px;color:var(--muted)">ประวัติแชทจากห้องชั้น 2, ROOM somsod, และห้องแชททั่วไป ถูกเก็บไว้ในที่ซ่อน ต้องใส่รหัสเพื่อเข้าดู</div>
+          </div>
+        </div>
+        <div class="admin-section" id="ad-units">
+          <div class="ad-card">
+            <h4>🔁 ตารางหน่วยแลกเปลี่ยน
+              <button class="exp-btn" onclick="openAddUnitRule()" style="margin-left:auto;float:right">+ เพิ่มกฎ</button>
+            </h4>
+            <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 12px;margin-bottom:10px">
+              <div style="font-size:11px;font-weight:700;color:#9a3412;margin-bottom:4px">📌 ชื่อตัวแปรหลัก (Main Variable)</div>
+              <div style="display:flex;gap:8px;align-items:center;font-size:12px">
+                <input id="unit-main-alias" placeholder="น้ำส้ม" style="flex:1;padding:7px 10px;border:1px solid #fed7aa;border-radius:7px;background:#fff;font-size:13px" oninput="saveUnitMainAlias()"/>
+                <span style="color:var(--muted)">=</span>
+                <input id="unit-main-name" placeholder="น้ำส้มStock" style="flex:1;padding:7px 10px;border:1px solid #fed7aa;border-radius:7px;background:#fff;font-size:13px;font-weight:700" oninput="saveUnitMainAlias()"/>
+              </div>
+              <div style="font-size:10px;color:var(--muted);margin-top:4px">ชื่อฝั่งซ้ายคือชื่อเรียกย่อ ฝั่งขวาคือชื่อเก็บในสต๊อก — ใช้เป็นชื่อเริ่มต้นของกฎแลกเปลี่ยนใหม่ทุกครั้ง</div>
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:8px">เช่น <b>น้ำส้มStock 1 ถัง = น้ำส้มStock 19,000 ml</b> · <b>น้ำส้มสามเหลี่ยม 220ml × 4 ขวด = 1 แพ็ค</b></div>
+            <div id="unit-rule-list"></div>
+          </div>
+        </div>
+        <div class="admin-section" id="ad-stock">
+          <div class="ad-card">
+            <h4>🧪 สต๊อกปริมาณน้ำส้ม (ml)
+              <button class="exp-btn" onclick="openAddStockBucket()" style="margin-left:auto;float:right">+ เพิ่มถังสต๊อก</button>
+              <button class="exp-btn" onclick="runLocalReconcile()" style="float:right;margin-right:6px">🧮 ตรวจสอบยอด</button>
+            </h4>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:8px">1 หม้อผลิต = 800,000 ml · ระบบหักปริมาณอัตโนมัติทุกครั้งที่มีการขายน้ำส้มไม่ว่าที่ไหน (ตามกฎแลกเปลี่ยน) · เตือนเมื่อต่ำกว่าเกณฑ์</div>
+            <div id="stock-bucket-list"></div>
+            <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+              <div style="font-size:12px;font-weight:700;margin-bottom:6px">ประวัติการเคลื่อนไหว</div>
+              <div id="stock-history-list"></div>
+            </div>
+          </div>
+        </div>
+        <div class="admin-section" id="ad-sheets">
+          <div class="ad-card">
+            <h4>📊 เชื่อมต่อ Google Sheets
+              <button class="exp-btn" id="ad-sheets-open" onclick="openActualSheet()" style="margin-left:auto;float:right;display:none">🔗 เปิดชีทของฉัน</button>
+            </h4>
+            <div class="gs-steps" style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:10px">
+              <ol style="padding-left:20px">
+                <li>เปิด <code>script.google.com</code> → <b>New project</b></li>
+                <li>ลบโค้ดเดิม แล้ว <b>วางโค้ดด้านล่างนี้ → บันทึก</b></li>
+                <li>กด <b>Deploy → New deployment → Web app</b> — <code>Execute as: Me</code> · <code>Who has access: Anyone</code></li>
+                <li>กด <b>Authorize</b> → ยอมรับสิทธิ์ (สคริปต์จะสร้างชีทให้อัตโนมัติ)</li>
+                <li>คัดลอก <b>Web app URL</b> แล้วเอามาวางด้านล่าง → <b>บันทึก</b></li>
+              </ol>
+            </div>
+            <div class="gs-code" id="ad-gs-code-box" style="max-height:160px"></div>
+            <div class="gs-actions" style="margin-top:8px">
+              <button class="gs-btn" onclick="copyAppsScript()">📋 คัดลอกโค้ด</button>
+              <button class="gs-btn" onclick="window.open('https://docs.google.com/spreadsheets/d/1ixalsENDrtiMr5m2lph0XnvShGE5YHt1EtIZGZZ_WZk','_blank')">🚀 เปิด Apps Script</button>
+            </div>
+            <label style="margin-top:14px">Web app URL ที่คัดลอกมา</label>
+            <input id="ad-gs-url" placeholder="https://script.google.com/macros/s/..../exec" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:8px 11px;font-size:12px"/>
+            <button class="btn-save" onclick="saveSheetsUrlFromAdmin()" style="margin-top:10px">💾 บันทึก + ทดสอบ</button>
+            <div id="ad-gs-status" style="margin-top:8px;font-size:11px;color:var(--muted)"></div>
+            <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+              <div style="font-size:12px;font-weight:700;margin-bottom:8px">🔄 ซิงค์ข้อมูลจาก Sheets → แอป</div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">
+                ดึงข้อมูลที่แก้ไขใน Google Sheets กลับมาอัปเดตในแอป<br/>
+                รองรับ: รายการสินค้า (ชื่อ/ราคา/หน่วย) · จำนวนสต๊อกในคลัง
+              </div>
+              <button class="btn-save" onclick="syncFromSheets()" style="background:var(--accent);width:100%">
+                ⬇️ ดึงข้อมูลจาก Sheets เข้าแอปเดี๋ยวนี้
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="admin-section" id="ad-connect">
+          <div class="ad-card">
+            <h4>🔗 การเชื่อมต่อข้อมูลกลางของเว็บนี้</h4>
+            <p style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">
+              ข้อมูลหลักของแอปถูกเก็บไว้ใน Netlify Database ของเว็บนี้ และอุปกรณ์ที่เปิดใช้งานจะดึงข้อมูลล่าสุดอัตโนมัติทุกไม่กี่วินาที <br/>
+              Firebase ด้านล่างเป็นช่องทางสำรองเดิมเท่านั้น ไม่ใช่แหล่งข้อมูลหลักของระบบ
+            </p>
+            <label style="font-size:11px;color:var(--muted);font-weight:500;display:block;margin-bottom:4px">Firebase Realtime Database URL (สำรองเดิม)</label>
+            <input id="ad-fb-url" placeholder="https://xxx-default-rtdb.asia-southeast1.firebasedatabase.app" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:8px 11px;font-size:12px"/>
+            <div style="font-size:10px;color:var(--muted);margin-top:4px">ค่าเริ่มต้นที่ฝังไว้: <code id="ad-fb-default"></code></div>
+            <button class="btn-save" onclick="saveConnectionSettings()" style="margin-top:12px">💾 บันทึกการเชื่อมต่อสำรอง</button>
+            <div id="ad-connect-status" style="margin-top:8px;font-size:11px;color:var(--muted)"></div>
+          </div>
+        </div>
+        <div class="admin-section" id="ad-audit">
+          <div class="ad-card">
+            <h4>📝 บันทึกการแก้ไข (ล่าสุด 200 รายการ) <button class="exp-btn" onclick="clearAudit()" style="margin-left:auto;float:right">ล้างประวัติ</button></h4>
+            <div id="audit-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── REALTIME BUY/SELL FEED PAGE ── -->
+    <div class="page feed-page" id="page-feed">
+      <div class="feed-header">
+        <button class="mbtn" onclick="toggleSidebar()" style="display:flex;background:rgba(255,255,255,.18);border-radius:8px;color:#fff">☰</button>
+        <span class="fh-icon">🛒</span>
+        <div style="flex:1">
+          <div class="fh-name">ROOM somsod · แชทสั่งงาน สั่งออเดอร์ ดูStock</div>
+          <div class="fh-sub" id="feed-sub">แชทสั่งงาน · สั่งออเดอร์ · ดู Stock · ล่าสุดอยู่บนสุด</div>
+        </div>
+        <button class="hbtn doc-btn" onclick="openDataExchange('feed')">⇅ เอกสาร</button>
+      </div>
+      <!-- Prominent realtime orange-juice volume widget + configurable KPI strip -->
+      <div id="feed-stats-strip" style="padding:10px 12px;background:linear-gradient(135deg,#fff7ed,#fff);border-bottom:1px solid var(--border);display:flex;gap:10px;flex-wrap:wrap"></div>
+      <div class="feed-filters">
+        <button class="feed-fbtn active" data-fk="all" onclick="setFeedFilter('all',this)">ทั้งหมด</button>
+        <button class="feed-fbtn" data-fk="buy" onclick="setFeedFilter('buy',this)">🟥 ซื้อ</button>
+        <button class="feed-fbtn" data-fk="sell" onclick="setFeedFilter('sell',this)">🟩 ขาย</button>
+        <button class="feed-fbtn" data-fk="chat" onclick="setFeedFilter('chat',this)">💬 แชท</button>
+        <button class="feed-fbtn" data-fk="board" onclick="setFeedFilter('board',this)">📊 บอร์ด</button>
+      </div>
+      <!-- Leaderboard / stats podium (only shows when filter=board) -->
+      <div id="feed-board" style="display:none;padding:12px 14px;background:#fff;border-bottom:1px solid var(--border);overflow-x:auto"></div>
+      <!-- Chat feed (only shows when filter=chat) -->
+      <div id="feed-chat" style="display:none;flex-direction:column;flex:1;min-height:0;background:#f5f7fb">
+        <div class="feed-chat-popup-head">
+          <span style="font-size:20px">💬</span>
+          <div class="pop-title">ROOM somsod · แชทสั่งงาน</div>
+          <button type="button" class="pop-x" onclick="toggleFeedChatPopup(false)">✕ ปิด</button>
+        </div>
+        <div id="feed-chat-msgs" style="flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:6px"></div>
+        <div id="feed-sticker-tray" style="display:none;padding:8px;border-top:1px solid var(--border);background:#fff;gap:6px;flex-wrap:wrap;max-height:140px;overflow-y:auto"></div>
+        <div style="padding:8px 12px;border-top:1px solid var(--border);background:#fff;display:flex;gap:6px;align-items:center">
+          <button type="button" title="สติ๊กเกอร์" onclick="toggleFeedStickerTray()" style="background:#fff4e6;border:1px solid #fed7aa;border-radius:7px;padding:6px 8px;cursor:pointer;font-size:16px">😀</button>
+          <input type="file" id="feed-photo-inp" accept="image/*" style="display:none" onchange="feedChatSendPhoto(this)"/>
+          <button type="button" title="ถ่ายรูป/อัพโหลดรูป" onclick="document.getElementById('feed-photo-inp').click()" style="background:#e0f2fe;border:1px solid #bae6fd;border-radius:7px;padding:6px 8px;cursor:pointer;font-size:15px">📷</button>
+          <button type="button" class="chat-voice-btn" id="voice-btn-feed" title="ส่งเสียงพูด" onclick="toggleChatVoice('feed','')" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:7px;padding:6px 8px;cursor:pointer;font-size:15px">🎙️</button>
+          <button type="button" id="feed-chat-expand" title="ขยายเต็มจอ" onclick="toggleFeedChatPopup()" style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:7px;padding:6px 8px;cursor:pointer;font-size:15px">⤢</button>
+          <input id="feed-chat-inp" placeholder="พิมพ์แชท ROOM somsod..." style="flex:1;padding:8px 11px;border:1px solid var(--border);border-radius:7px;font-size:13px;outline:none" onkeydown="if(event.key==='Enter'){event.preventDefault();feedChatSend();}"/>
+          <button class="mok" onclick="feedChatSend()" style="background:var(--accent);border:none;color:#fff;border-radius:7px;padding:8px 14px;cursor:pointer">ส่ง</button>
+        </div>
+      </div>
+      <div class="feed-body" id="feed-body"></div>
+    </div>
+
+    <!-- ── L2 GROUP ROOM PAGE (real room, not popup) ── -->
+    <div class="page" id="page-l2" style="flex-direction:column">
+      <div class="chat-header">
+        <button class="mbtn" onclick="toggleSidebar()" style="display:flex">☰</button>
+        <div class="ch-icon" id="l2p-icon">👥</div>
+        <div style="flex:1"><div class="ch-name" id="l2p-name">—</div><div class="ch-sub" id="l2p-sub">—</div></div>
+        <div class="ch-acts">
+          <button class="hbtn doc-btn light" onclick="openDataExchange('l2')">⇅ เอกสาร</button>
+          <button class="hbtn" onclick="openEditRoomNode(l2CurId)">✏️ แก้ไข</button>
+        </div>
+      </div>
+      <div id="l2p-status-bar" style="background:#fff;border-bottom:1px solid var(--border);padding:10px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px"></div>
+      <div style="display:flex;background:#f7f7f9;border-bottom:1px solid var(--border);flex-shrink:0">
+        <button class="l2ptab active" data-tab="chat" onclick="l2pSwitchTab('chat',this)" style="flex:1;padding:10px;border:none;background:transparent;font-size:12px;font-weight:700;color:var(--text);cursor:pointer;border-bottom:2px solid var(--accent)">💬 แชท + ยอดขาย</button>
+        <button class="l2ptab" data-tab="feed" onclick="l2pSwitchTab('feed',this)" style="flex:1;padding:10px;border:none;background:transparent;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent">📊 ฟีดขาย</button>
+      </div>
+      <div id="l2p-body-chat" style="flex:1;min-height:0;display:flex;flex-direction:column;background:#f5f7fb;overflow:hidden">
+        <div id="l2p-salebar" style="background:#fff;border-bottom:1px solid var(--border);padding:6px 14px;font-size:11px;color:var(--muted);display:flex;gap:10px;overflow-x:auto;white-space:nowrap"></div>
+        <div id="l2p-msgs" style="flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:6px"></div>
+        <div id="l2p-sticker-tray" style="display:none;padding:8px;border-top:1px solid var(--border);background:#fff;gap:6px;flex-wrap:wrap;max-height:140px;overflow-y:auto"></div>
+        <div style="padding:8px 12px;border-top:1px solid var(--border);background:#fff;display:flex;gap:6px;align-items:center">
+          <button type="button" title="สติ๊กเกอร์" onclick="toggleL2StickerTray()" style="background:#fff4e6;border:1px solid #fed7aa;border-radius:7px;padding:6px 8px;cursor:pointer;font-size:16px">😀</button>
+          <input type="file" id="l2p-photo-inp" accept="image/*" style="display:none" onchange="l2pSendPhoto(this)"/>
+          <button type="button" title="ถ่ายรูป/อัพโหลดรูป" onclick="document.getElementById('l2p-photo-inp').click()" style="background:#e0f2fe;border:1px solid #bae6fd;border-radius:7px;padding:6px 8px;cursor:pointer;font-size:15px">📷</button>
+          <button type="button" class="chat-voice-btn" id="voice-btn-l2" title="ส่งเสียงพูด" onclick="toggleChatVoice('l2',l2CurId)" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:7px;padding:6px 8px;cursor:pointer;font-size:15px">🎙️</button>
+          <input id="l2p-inp" placeholder="พิมพ์ข้อความ…" style="flex:1;padding:8px 11px;border:1px solid var(--border);border-radius:7px;font-size:13px;outline:none" onkeydown="if(event.key==='Enter'){event.preventDefault();l2pSendChat();}"/>
+          <button class="mok" onclick="l2pSendChat()" style="background:var(--accent);border:none;color:#fff;border-radius:7px;padding:8px 14px;cursor:pointer">ส่ง</button>
+        </div>
+      </div>
+      <div id="l2p-body-feed" style="display:none;flex:1;min-height:0;overflow-y:auto;padding:12px 14px;background:#f0f2f5"></div>
+    </div>
+
+    <!-- ── FACTORY (Orange Juice Production) PAGE ── -->
+    <div class="page" id="page-factory" style="flex-direction:column;background:#f0f2f5">
+      <div class="chat-header" style="background:linear-gradient(135deg,#ff7a00,#ffb347);color:#fff">
+        <button class="mbtn" onclick="toggleSidebar()" style="display:flex">☰</button>
+        <div class="ch-icon" style="background:rgba(255,255,255,.25)">🏭</div>
+        <div style="flex:1">
+          <div class="ch-name" style="color:#fff">โรงงานน้ำส้ม</div>
+          <div class="ch-sub" style="color:rgba(255,255,255,.85)" id="fac-sub">จัดการสต๊อก Lot · บรรจุ · ขวดเปล่า</div>
+        </div>
+        <div class="ch-acts">
+          <button class="hbtn doc-btn" onclick="openDataExchange('factory')" title="ส่งออก/นำเข้า">⇅ เอกสาร</button>
+          <button class="hbtn" onclick="renderFactory()" title="รีเฟรช">↻</button>
+        </div>
+      </div>
+      <div style="display:flex;background:#fff;border-bottom:1px solid var(--border);flex-shrink:0">
+        <button class="factab active" data-tab="prod" onclick="facSwitchTab('prod')" style="flex:1;padding:10px 6px;border:none;background:transparent;font-size:12px;font-weight:700;color:var(--text);cursor:pointer;border-bottom:2px solid var(--accent)">🍊 ผลิต</button>
+        <button class="factab" data-tab="bot" onclick="facSwitchTab('bot')" style="flex:1;padding:10px 6px;border:none;background:transparent;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent">📦 บรรจุ</button>
+        <button class="factab" data-tab="emp" onclick="facSwitchTab('emp')" style="flex:1;padding:10px 6px;border:none;background:transparent;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent">🍶 ขวดเปล่า</button>
+        <button class="factab" data-tab="dash" onclick="facSwitchTab('dash')" style="flex:1;padding:10px 6px;border:none;background:transparent;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent">📊 Dashboard</button>
+      </div>
+      <div id="fac-body" style="flex:1;min-height:0;overflow-y:auto;padding:14px"></div>
+    </div>
+
+    <!-- ── PRODUCT LIST (รายการสินค้า) PAGE — central catalog ── -->
+    <div class="page" id="page-products" style="flex-direction:column;background:#f0f2f5">
+      <div class="chat-header" style="background:linear-gradient(135deg,#0ea5e9,#22d3ee);color:#fff">
+        <button class="mbtn" onclick="toggleSidebar()" style="display:flex">☰</button>
+        <div class="ch-icon" style="background:rgba(255,255,255,.25)">📋</div>
+        <div style="flex:1">
+          <div class="ch-name" style="color:#fff">รายการสินค้า</div>
+          <div class="ch-sub" style="color:rgba(255,255,255,.85)">ศูนย์กลางข้อมูลสินค้า · ทุกห้องดึงไปใช้</div>
+        </div>
+        <div class="ch-acts">
+          <button class="hbtn doc-btn" onclick="openDataExchange('products')" title="ส่งออก/นำเข้า">⇅ เอกสาร</button>
+          <button class="hbtn" onclick="plOpenAdd('liquid')" title="เพิ่มสินค้าของเหลว">＋ ของเหลว</button>
+          <button class="hbtn" onclick="plOpenAdd('count')" title="เพิ่มสินค้านับชิ้น">＋ นับชิ้น</button>
+        </div>
+      </div>
+      <div id="pl-body" style="flex:1;min-height:0;overflow-y:auto;padding:14px"></div>
+    </div>
+
+    <!-- ── INVENTORY / WAREHOUSE PAGE ── -->
+    <div class="page" id="page-inventory" style="flex-direction:column;background:#f0f2f5">
+      <div class="inv-header">
+        <button class="mbtn" onclick="toggleSidebar()" style="display:flex">☰</button>
+        <span style="font-size:20px">📦</span>
+        <div style="flex:1">
+          <div class="fin-title">คลังสินค้า</div>
+          <div style="font-size:11px;color:var(--muted)">รับเข้า · ตัดออก · นับสต๊อก · เชื่อมรายรับรายจ่ายและโรงงาน</div>
+        </div>
+        <button class="cat-mgr-btn" onclick="openDataExchange('inventory')" title="ส่งออก/นำเข้า">⇅ เอกสาร</button>
+        <button class="cat-mgr-btn" onclick="openCategoryManager()">🗂 หมวดหมู่</button>
+        <button class="hbtn" onclick="openAddProduct()">＋ เพิ่มสินค้า</button>
+      </div>
+      <div class="inv-body">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="kpi-label">รายการในคลัง</div><div class="kpi-val" id="kpi-count">0</div></div>
+          <div class="kpi"><div class="kpi-label">มูลค่าสต๊อก</div><div class="kpi-val" id="kpi-value">฿0</div></div>
+          <div class="kpi"><div class="kpi-label">ใกล้หมด</div><div class="kpi-val" id="kpi-low">0</div></div>
+        </div>
+        <div class="inv-tabs">
+          <button class="inv-tab active" onclick="switchInvTab('items',this)">สินค้า</button>
+          <button class="inv-tab" onclick="switchInvTab('count',this)">นับสต๊อก</button>
+          <button class="inv-tab" onclick="switchInvTab('history',this)">ประวัติ</button>
+        </div>
+        <div class="inv-section active" id="inv-items">
+          <div style="display:flex;gap:7px;margin-bottom:10px;align-items:center">
+            <input id="inv-search" placeholder="ค้นหาสินค้าในคลัง" oninput="renderInventory()" style="flex:1;border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-size:13px"/>
+            <select id="inv-cat-filter" onchange="renderInventory()" style="border:1px solid var(--border);border-radius:8px;padding:8px 9px;font-size:12px;max-width:150px"></select>
+          </div>
+          <div class="sync-status" id="sync-stat"><span class="sdot"></span><span id="sync-stat-txt">ยังไม่ได้เชื่อม Sheets</span><span id="gs-badge" style="display:none">· Sheets</span></div>
+          <div id="inv-list" style="margin-top:10px"></div>
+        </div>
+        <div class="inv-section" id="inv-count">
+          <div class="ad-card" style="margin-bottom:10px">
+            <h4 style="margin-bottom:4px">📋 นับสต๊อกวันนี้ <span id="count-date" style="color:var(--muted);font-weight:500"></span></h4>
+            <div style="font-size:11px;color:var(--muted)">กรอกยอดนับจริง ระบบจะบันทึกส่วนต่างและปรับยอดเมื่อยืนยัน</div>
+          </div>
+          <div id="count-list"></div>
+          <button class="btn-save" onclick="saveCount()">💾 บันทึกผลนับสต๊อก</button>
+        </div>
+        <div class="inv-section" id="inv-history">
+          <div id="history-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── AI CHAT PAGE ── -->
+    <div class="page" id="page-ai" style="flex-direction:column;background:#f0f2f5">
+      <div class="chat-header" style="background:linear-gradient(135deg,#27324a,#ff7a00);color:#fff">
+        <button class="mbtn" onclick="toggleSidebar()" style="display:flex">☰</button>
+        <div class="ch-icon" style="background:rgba(255,255,255,.22)">🤖</div>
+        <div style="flex:1">
+          <div class="ch-name" style="color:#fff">แชท AI ลงข้อมูล</div>
+          <div class="ch-sub" style="color:rgba(255,255,255,.86)">คุยกับ AI วิเคราะห์เอกสาร แล้วนำ action เข้าระบบและคิวซิงค์ Sheets</div>
+        </div>
+        <div class="ch-acts">
+          <button class="hbtn doc-btn" onclick="aiClearChat()">ล้างแชท</button>
+          <button class="hbtn doc-btn" onclick="openDataExchange('ai')">⇅ เอกสาร</button>
+        </div>
+      </div>
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:14px">
+        <div class="ai-chat-shell">
+          <div class="ai-chat-main">
+            <div class="ai-chat-log" id="ai-chat-log"></div>
+            <div class="ai-chat-compose">
+              <textarea id="ai-prompt" placeholder="พิมพ์ถาม AI หรือสั่งให้ลงข้อมูล เช่น อ่านบิลนี้แล้วบันทึกเป็นรายจ่ายวันนี้" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();aiSendChat();}"></textarea>
+              <button type="button" class="ai-primary ai-send" onclick="aiSendChat()">ส่ง</button>
+            </div>
+          </div>
+          <div class="ai-chat-side">
+            <div class="ai-card">
+              <h3>เอกสารและรูปภาพ</h3>
+              <input type="file" id="ai-file" accept=".csv,.xlsx,.xls,.pdf,image/*" style="display:none" onchange="aiHandleFile(this)"/>
+              <div class="ai-tools">
+                <button type="button" onclick="document.getElementById('ai-file').click()">แนบชีต / PDF / รูปบิล</button>
+                <button type="button" onclick="aiUseCurrentContext()">ใส่บริบทหน้าปัจจุบัน</button>
+              </div>
+              <div class="ai-quick" style="margin-top:10px">
+                <button type="button" onclick="aiQuickPrompt('สรุปยอดขาย รายรับ รายจ่าย และสต๊อกล่าสุดให้หน่อย')">สรุปภาพรวมแอป</button>
+                <button type="button" onclick="aiQuickPrompt('ช่วยตรวจว่าข้อมูลไหนควรบันทึกลงรายรับ รายจ่าย หรือยอดขาย')">ตรวจข้อมูลเพื่อลงระบบ</button>
+                <button type="button" onclick="aiQuickPrompt('จากบริบทปัจจุบัน มีอะไรผิดปกติหรือควรติดตามบ้าง')">หาสิ่งผิดปกติ</button>
+                <button type="button" onclick="aiQuickPrompt('รายการสินค้าที่มีในระบบตอนนี้มีอะไรบ้าง')">ดูรายการสินค้า</button>
+                <button type="button" onclick="aiQuickPrompt('ฉันต้องการเพิ่มสินค้าใหม่เข้าระบบ ช่วยแนะนำรูปแบบที่ต้องบอกหน่อย')">เพิ่มสินค้าใหม่</button>
+                <button type="button" onclick="aiQuickPrompt('ฉันต้องการแก้ไขราคาหรือข้อมูลสินค้า บอกชื่อสินค้าและสิ่งที่ต้องการเปลี่ยนได้เลย')">แก้ไขสินค้า</button>
+              </div>
+              <div class="ai-status" id="ai-file-status">ยังไม่ได้แนบไฟล์</div>
+            </div>
+            <div class="ai-card">
+              <h3>action ที่พร้อมบันทึก</h3>
+              <div id="ai-actions"></div>
+              <button class="ai-primary" id="ai-apply-btn" style="display:none;margin-top:10px;width:100%" onclick="aiApplyActions()">นำผลเข้าระบบ + ส่งไป Sheets</button>
+              <div class="ai-status" id="ai-apply-status"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── AI CAMERA COUNT PAGE ── -->
+    <div class="page" id="page-camera" style="flex-direction:column;background:#f0f2f5">
+      <div class="chat-header" style="background:linear-gradient(135deg,#111827,#0ea5e9);color:#fff">
+        <button class="mbtn" onclick="toggleSidebar()" style="display:flex">☰</button>
+        <div class="ch-icon" style="background:rgba(255,255,255,.22)">📷</div>
+        <div style="flex:1">
+          <div class="ch-name" style="color:#fff">กล้อง AI อัจฉริยะ</div>
+          <div class="ch-sub" style="color:rgba(255,255,255,.86)">ถ่ายหรืออัปโหลดรูปเพื่อนับจำนวน · วิดีโอบันทึกได้เมื่อกดปุ่มเท่านั้น</div>
+        </div>
+        <div class="ch-acts">
+          <button class="hbtn doc-btn" onclick="openDataExchange('camera')">⇅ เอกสาร</button>
+        </div>
+      </div>
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:14px">
+        <div class="ai-camera-wrap">
+          <div class="ai-video-box" style="position:relative">
+            <video id="ai-cam-video" autoplay playsinline muted style="display:none"></video>
+            <img id="ai-cam-preview" alt="" style="display:none"/>
+            <div id="ai-cam-empty" style="text-align:center;font-size:13px;line-height:1.7">เปิดกล้องหรือเลือกรูปเพื่อให้นับจำนวน</div>
+            <div class="cam-controls" id="cam-controls" style="display:none">
+              <button class="cam-btn" onclick="aiFlipCamera()" title="สลับกล้อง">🔄</button>
+              <div class="cam-zoom-wrap">
+                <span style="font-size:13px">🔍</span>
+                <input type="range" id="cam-zoom" min="1" max="5" step="0.1" value="1" oninput="aiSetZoom(this.value)"/>
+                <span class="cam-zoom-lbl" id="cam-zoom-lbl">1×</span>
+              </div>
+            </div>
+          </div>
+          <div class="ai-card">
+            <h3>ตั้งค่าการนับ</h3>
+            <label>สินค้าที่ต้องการผูกกับสต๊อก</label>
+            <select id="ai-camera-product"></select>
+            <label>สิ่งที่ให้ AI นับ</label>
+            <input id="ai-camera-target" placeholder="เช่น ขวด 220 ml, กล่อง, ถุงส้ม"/>
+            <div class="ai-tools">
+              <button type="button" onclick="aiStartCamera()">เริ่มกล้อง</button>
+              <button type="button" onclick="aiCaptureCamera()">นับจากภาพนี้</button>
+              <input type="file" id="ai-camera-file" accept="image/*" style="display:none" onchange="aiCameraUpload(this)"/>
+              <button type="button" onclick="document.getElementById('ai-camera-file').click()">เลือกรูป</button>
+            </div>
+            <div class="ai-video-actions">
+              <button type="button" class="primary" id="ai-video-start" onclick="aiStartVideoRecord()">บันทึกวิดีโอ</button>
+              <button type="button" class="danger" id="ai-video-stop" onclick="aiStopVideoRecord()" disabled>หยุด</button>
+            </div>
+            <div class="ai-status" id="ai-video-status">ไม่มีการบันทึกภาพหรือวิดีโออัตโนมัติ</div>
+            <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
+              <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px">จำนวนที่ AI อ่านได้</div>
+              <div class="ai-count-big" id="ai-count-value">—</div>
+              <div class="ai-status" id="ai-camera-result">ยังไม่มีผลนับ</div>
+              <button class="ai-primary" id="ai-camera-apply" style="display:none;width:100%;margin-top:12px" onclick="aiApplyCameraCount()">ปรับยอดสต๊อกจากผลนับ</button>
+            </div>
+          </div>
+        </div>
+        <canvas id="ai-cam-canvas" style="display:none"></canvas>
+      </div>
+    </div>
+
+    <!-- ── FINANCE (รายรับ-รายจ่าย / P&L) PAGE ── -->
+    <div class="page" id="page-finance" style="flex-direction:column;background:#f0f2f5">
+      <div class="chat-header" style="background:linear-gradient(135deg,#0e7c3a,#38c97a);color:#fff">
+        <button class="mbtn" onclick="toggleSidebar()" style="display:flex">☰</button>
+        <div class="ch-icon" style="background:rgba(255,255,255,.25)">💰</div>
+        <div style="flex:1">
+          <div class="ch-name" style="color:#fff">รายรับ-รายจ่าย</div>
+          <div class="ch-sub" style="color:rgba(255,255,255,.85)">P&amp;L · ซิงค์อัตโนมัติจากโรงงานน้ำส้ม</div>
+        </div>
+        <div class="ch-acts">
+          <button class="hbtn doc-btn" onclick="openDataExchange('finance')" title="ส่งออก/นำเข้า">⇅ เอกสาร</button>
+          <button class="hbtn" onclick="finOpenManual()" title="บันทึกรายการเอง">＋</button>
+          <button class="hbtn" onclick="renderFinance()" title="รีเฟรช">↻</button>
+        </div>
+      </div>
+      <div style="display:flex;background:#fff;border-bottom:1px solid var(--border);flex-shrink:0;gap:0">
+        <button class="fintab active" data-period="today" onclick="finSwitchPeriod('today')" style="flex:1;padding:10px 6px;border:none;background:transparent;font-size:12px;font-weight:700;color:var(--text);cursor:pointer;border-bottom:2px solid #0e7c3a">วันนี้</button>
+        <button class="fintab" data-period="month" onclick="finSwitchPeriod('month')" style="flex:1;padding:10px 6px;border:none;background:transparent;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent">เดือนนี้</button>
+        <button class="fintab" data-period="year" onclick="finSwitchPeriod('year')" style="flex:1;padding:10px 6px;border:none;background:transparent;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent">ปีนี้</button>
+        <button class="fintab" data-period="all" onclick="finSwitchPeriod('all')" style="flex:1;padding:10px 6px;border:none;background:transparent;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent">ทั้งหมด</button>
+      </div>
+      <div id="fin-body" style="flex:1;min-height:0;overflow-y:auto;padding:14px"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Manual finance entry modal ── -->
+<div class="ov" id="ov-fin-manual">
+  <div class="modal" style="max-width:420px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <h3 style="margin:0;flex:1">＋ บันทึกรายการรายรับ/รายจ่าย</h3>
+      <button onclick="finCloseManual()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);line-height:1">×</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="fac-fld"><label>ประเภท</label>
+        <select id="fin-m-type" onchange="finManualSyncCats()">
+          <option value="exp">รายจ่าย</option>
+          <option value="inc">รายรับ</option>
+        </select>
+      </div>
+      <div class="fac-fld"><label>วันที่</label><input type="date" id="fin-m-date"></div>
+      <div class="fac-fld"><label>หมวดหมู่</label>
+        <select id="fin-m-cat"></select>
+      </div>
+      <div class="fac-fld"><label>รายละเอียด</label><input type="text" id="fin-m-desc" placeholder="เช่น ค่าแรงพนักงานเดือน X"></div>
+      <div class="fac-grid">
+        <div class="fac-fld"><label>จำนวนเงิน (บาท)</label><input type="number" step="0.01" id="fin-m-amount" placeholder="0"></div>
+        <div class="fac-fld"><label>อ้างอิง Lot (ถ้ามี)</label>
+          <select id="fin-m-lot"><option value="">—</option></select>
+        </div>
+      </div>
+      <div class="fac-fld"><label>หมายเหตุ</label><textarea id="fin-m-note" rows="2" style="resize:vertical"></textarea></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="fac-btn sec" onclick="finCloseManual()">ยกเลิก</button>
+        <button class="fac-btn" style="background:#0e7c3a" onclick="finSaveManual()">บันทึก</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- CHAT DRAWER CONTAINER (multi-room · max 3 side popups) -->
+<div id="chat-drawer-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="app.js"></script>
+
+<!-- ── ROOM HIERARCHY POPUP ── -->
+<div class="room-popup-ov" id="room-popup-ov" onclick="if(event.target===this)closeRoomPopup()">
+  <div class="room-popup-box">
+    <div class="room-popup-hd">
+      <div style="flex:1;min-width:0">
+        <div id="room-popup-title" style="font-weight:700;font-size:15px">เลือกห้อง</div>
+        <div id="room-popup-crumb" class="room-popup-breadcrumb"></div>
+      </div>
+      <button class="room-popup-close" onclick="closeRoomPopup()">✕</button>
+    </div>
+    <div class="room-popup-body" id="room-popup-body"></div>
+    <div class="room-popup-back" id="room-popup-back" style="display:none">
+      <button onclick="roomPopupBack()">← ย้อนกลับ</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>
