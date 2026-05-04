@@ -1,0 +1,12 @@
+{
+  "name": "appsomsod-functions",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/validate-site.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0",
+    "@netlify/blobs": "^8.1.0"
+  }
+}
